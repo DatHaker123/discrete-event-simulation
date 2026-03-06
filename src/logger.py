@@ -8,12 +8,12 @@ To include simulation time in a log line, pass it explicitly via extra:
 The formatter will render it as [t=12.5] in the output. No context or engine wiring.
 
 How to use:
-    # At startup:
-    from src.logging import setup_logging
-    setup_logging(level=logging.INFO, log_file="sim.log")
+    # At startup (so logs also go to output/sim.log):
+    from src.logger import setup_logging
+    setup_logging(level=logging.INFO, log_file="sim.log", output_dir="output")
 
     # When logging (with sim time):
-    from src.logging import get_logger
+    from src.logger import get_logger
     log = get_logger("my_component_id")
     log.info("Arrival", extra={"sim_time": engine.get_current_time()})
 """

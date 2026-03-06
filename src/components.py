@@ -1,8 +1,10 @@
 from abc import ABC, abstractmethod
 from typing import Callable
-from .engine import Engine, Event
-from .utils import Distribution
-from .logging import get_logger
+
+from engine import Engine
+from events import Event
+from logger import get_logger
+from utils import Distribution
 
 
 class Component(ABC):
@@ -31,13 +33,24 @@ class Component(ABC):
 class SingleOutputComponent(Component):
     def __init__(self, component_id: str, type: str):
         super().__init__(component_id, type)
-        self.output = self._outputs[0]
+        self.output = None
         self.add_handleable_event("Departure", self._handle_departure)
 
-    def _handle_departure(self, engine: Engine, _) -> None:
-        self.log.info("Departure event received", extra={"sim_time": current_time})
+    def connect(self, other: "Component") -> None:
+        if self.output is not None:
+            raise ValueError("Component already connected")
+        self.output = other
+        super().connect(other)
+    
+    def disconnect(self, other: "Component") -> None:
+        if self.output is not other:
+            raise ValueError("Component not connected")
+        self.output = None
+        super().disconnect(other)
 
+    def _handle_departure(self, engine: Engine, _) -> None:
         current_time = engine.get_current_time()
+        self.log.info("Departure event received", extra={"sim_time": current_time})
         arrival_event = Event(current_time, self.output.component_id, "Arrival", (), {})
         engine.add_event(arrival_event)
 
@@ -49,8 +62,8 @@ class SourceComponent(SingleOutputComponent):
         self.add_handleable_event("Generate", self._handle_generate)
 
     def _handle_generate(self, engine: Engine, _) -> None:
-        self.log.info("Generate event received", extra={"sim_time": current_time})
         current_time = engine.get_current_time()
+        self.log.info("Generate event received", extra={"sim_time": current_time})
 
         next_time = current_time + self.interval.sample()
         next_event = Event(next_time, self.component_id, "Generate", (), {})

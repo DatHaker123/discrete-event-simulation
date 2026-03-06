@@ -1,25 +1,13 @@
-from .components import Component
-from dataclasses import dataclass
-from typing import Callable
-from .logging import get_logger
-
-@dataclass
-class Event:
-    time: float
-    handler_id: str
-    type: str
-    args: tuple
-    kwargs: dict
-
+from __future__ import annotations
 
 import heapq
+from typing import TYPE_CHECKING
 
-def priority_for_event_type(event_type: str) -> int:
-    """
-    Returns the priority value for the given event type string.
-    Subclasses or the user should implement this function.
-    """
-    raise NotImplementedError("Provide a priority for each event type.")
+from events import Event, priority_for_event_type
+from logger import get_logger
+
+if TYPE_CHECKING:
+    from .components import Component
 
 class EventQueue:
     def __init__(self):
@@ -67,10 +55,10 @@ class Engine:
     def peek_event(self):
         return self._event_queue.peek()
 
-    def add_component(self, component: Component):
+    def add_component(self, component: "Component"):
         self._components[component.component_id] = component
 
-    def remove_component(self, component: Component):
+    def remove_component(self, component: "Component"):
         del self._components[component.component_id]
 
     def run(self):
@@ -83,3 +71,7 @@ class Engine:
 
     def get_current_time(self):
         return self._current_time
+
+    def get_results(self):
+        """Return all components (e.g. for stats.get_records_as_printable_string(engine.get_results()))."""
+        return self._components.values()
