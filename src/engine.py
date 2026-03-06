@@ -89,8 +89,10 @@ class Engine:
             from visualization import Visualizer
             visualizer = Visualizer(*self.get_graph(), output_dir=self.output_dir)
 
+        FRAME_EVENT_TYPES = frozenset({"Departure", "Arrival", "Generate"})
+
         def _step(t: float, e: Event | None, q: list) -> None:
-            if visualizer is not None:
+            if visualizer is not None and (e is None or e.type in FRAME_EVENT_TYPES):
                 visualizer.add_frame(t, e, list(q))
             if on_step is not None:
                 on_step(t, e, q)

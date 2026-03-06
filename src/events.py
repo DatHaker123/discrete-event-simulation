@@ -16,5 +16,13 @@ def priority_for_event_type(event_type: str) -> int:
     Returns the priority value for the given event type string.
     Subclasses or the user should implement this function.
     """
-    # TODO: Implement priority for event type
-    return 0
+    if event_type == "Generate":
+        return 1
+    elif event_type == "Arrival":
+        return 2
+    elif event_type == "Departure":
+        return 3
+    else:
+        return 0
+
+

@@ -22,7 +22,7 @@ from src.events import Event
 def simple_simulation():
     engine = Engine(startup_events=[Event(0, "source", "Generate", (), {})])
     source = SourceComponent("source", UniformDistribution(0, 10))
-    delay = DelayComponent("delay", UniformDistribution(0, 10))
+    delay = DelayComponent("delay", UniformDistribution(0, 10), capacity=3)
     sink = SinkComponent("sink")
     source.connect(delay)
     delay.connect(sink)
