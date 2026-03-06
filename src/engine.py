@@ -53,6 +53,7 @@ class Engine:
     def __init__(self):
         self._components = {}
         self._event_queue = EventQueue()
+        self._current_time = 0.0
 
     def add_event(self, event: Event):
         self._event_queue.push(event)
@@ -73,4 +74,8 @@ class Engine:
         while not self._event_queue.is_empty():
             event = self.pop_event()
             component = self._components[event.handler_id]
+            self._current_time = event.time
             component.handle_event(self, event)
+
+    def get_current_time(self):
+        return self._current_time

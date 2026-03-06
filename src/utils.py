@@ -1,4 +1,3 @@
-from typing import Callable
 import random
 from abc import ABC, abstractmethod
 
