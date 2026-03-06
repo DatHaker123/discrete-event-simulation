@@ -1,5 +1,14 @@
+import os
 import random
 from abc import ABC, abstractmethod
+from dotenv import load_dotenv
+
+load_dotenv()
+
+_seed = os.getenv("RANDOM_SEED")
+if _seed is not None:
+    random.seed(int(_seed))
+
 
 class Distribution(ABC):
     def __init__(self, name: str):

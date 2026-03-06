@@ -1,6 +1,7 @@
 from .components import Component
 from dataclasses import dataclass
 from typing import Callable
+from .logging import get_logger
 
 @dataclass
 class Event:
@@ -54,8 +55,10 @@ class Engine:
         self._components = {}
         self._event_queue = EventQueue()
         self._current_time = 0.0
+        self.log = get_logger("engine")
 
     def add_event(self, event: Event):
+        self.log.info("Adding event", extra={"sim_time": self._current_time})
         self._event_queue.push(event)
 
     def pop_event(self):
@@ -75,6 +78,7 @@ class Engine:
             event = self.pop_event()
             component = self._components[event.handler_id]
             self._current_time = event.time
+            self.log.info("Handling event", extra={"sim_time": self._current_time})
             component.handle_event(self, event)
 
     def get_current_time(self):
