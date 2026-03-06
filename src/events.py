@@ -2,7 +2,6 @@
 
 from dataclasses import dataclass
 
-
 @dataclass
 class Event:
     time: float
@@ -17,4 +16,5 @@ def priority_for_event_type(event_type: str) -> int:
     Returns the priority value for the given event type string.
     Subclasses or the user should implement this function.
     """
-    raise NotImplementedError("Provide a priority for each event type.")
+    # TODO: Implement priority for event type
+    return 0

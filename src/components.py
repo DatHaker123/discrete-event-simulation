@@ -69,8 +69,8 @@ class SourceComponent(SingleOutputComponent):
         next_event = Event(next_time, self.component_id, "Generate", (), {})
         engine.add_event(next_event)
 
-        departure_event = Event(current_time, self.component_id, "Departure", (), {})
-        engine.add_event(departure_event)
+        arrival_event = Event(current_time, self.output.component_id, "Arrival", (), {})
+        engine.add_event(arrival_event)
 
 
 
@@ -80,11 +80,11 @@ class SinkComponent(Component):
         self.records = []
         self.add_handleable_event("Arrival", self._handle_arrival)
 
-    def _handle_arrival(self, engine: Engine, event: Event) -> None:
+    def _handle_arrival(self, engine: Engine, _: Event) -> None:
         current_time = engine.get_current_time()
 
-        self.log.info("Arrival event received", extra={"sim_time": current_time})
-        self.records.append(event.time)
+        self.log.info("Arrival event received, adding to records", extra={"sim_time": current_time})
+        self.records.append(current_time)
 
 
 

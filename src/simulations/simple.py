@@ -3,10 +3,12 @@
 import sys
 from pathlib import Path
 
-# Add project root so "src" imports work when running this file directly
+# Add project root and src so both "src.xxx" and internal "from events import" etc. resolve
 _root = Path(__file__).resolve().parent.parent.parent
-if _root not in sys.path:
-    sys.path.insert(0, str(_root))
+_src = _root / "src"
+for p in (_src, _root):
+    if str(p) not in sys.path:
+        sys.path.insert(0, str(p))
 
 import logging
 from src.engine import Engine
@@ -14,10 +16,11 @@ from src.components import SourceComponent, DelayComponent, SinkComponent
 from src.logger import setup_logging
 from src.stats import get_records_as_printable_string
 from src.utils import UniformDistribution
+from src.events import Event
 
 
 def simple_simulation():
-    engine = Engine()
+    engine = Engine(startup_events=[Event(0, "source", "Generate", (), {})])
     source = SourceComponent("source", UniformDistribution(0, 10))
     delay = DelayComponent("delay", UniformDistribution(0, 10))
     sink = SinkComponent("sink")

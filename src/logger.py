@@ -8,9 +8,9 @@ To include simulation time in a log line, pass it explicitly via extra:
 The formatter will render it as [t=12.5] in the output. No context or engine wiring.
 
 How to use:
-    # At startup (so logs also go to output/sim.log):
+    # At startup (so logs also go to output/sim.log). Set VERBOSE=1 in env for DEBUG.
     from src.logger import setup_logging
-    setup_logging(level=logging.INFO, log_file="sim.log", output_dir="output")
+    setup_logging(log_file="sim.log", output_dir="output")
 
     # When logging (with sim time):
     from src.logger import get_logger
@@ -23,10 +23,26 @@ import os
 import sys
 from typing import Optional
 
+try:
+    from dotenv import load_dotenv
+except ImportError:
+    def load_dotenv() -> None: ...
+
+# Standard LogRecord attribute names (so we don't treat them as "extra")
+_LOG_RECORD_ATTRS = frozenset(
+    {
+        "name", "msg", "args", "created", "filename", "funcName", "levelname",
+        "levelno", "lineno", "module", "msecs", "pathname", "process",
+        "processName", "relativeCreated", "stack_info", "exc_info", "exc_text",
+        "thread", "threadName", "message", "taskName",
+    }
+)
+
+
 class SimTimeFormatter(logging.Formatter):
     """
-    Formatter that reads sim_time from the log record (set via extra={"sim_time": t}).
-    Use %(sim_time)s in your format string; it becomes e.g. "[t=10.25] " or "".
+    Formatter that reads sim_time and other extra fields from the log record.
+    %(sim_time)s -> e.g. "[t=10.25] "; %(extras)s -> e.g. " event_type=Generate delay=0.5".
     """
 
     def format(self, record: logging.LogRecord) -> str:
@@ -35,6 +51,13 @@ class SimTimeFormatter(logging.Formatter):
             record.sim_time = f"[t={t:.4f}] "
         else:
             record.sim_time = ""
+
+        # Build extras string from any extra={...} keys (excluding sim_time)
+        extras_parts = []
+        for k, v in record.__dict__.items():
+            if k not in _LOG_RECORD_ATTRS and k != "sim_time":
+                extras_parts.append(f" {k}={v}")
+        record.extras = "".join(extras_parts) if extras_parts else ""
         return super().format(record)
 
 
@@ -46,29 +69,50 @@ def get_logger(name: str) -> logging.Logger:
     return logging.getLogger(f"simulation.{name}")
 
 
+def _level_from_env() -> int | None:
+    """If VERBOSE is set (1, true, yes), return DEBUG; else None (use caller default)."""
+    load_dotenv()
+    v = os.getenv("VERBOSE", "").strip().lower()
+    if v in ("1", "true", "yes", "on"):
+        return logging.DEBUG
+    return None
+
+
 def setup_logging(
-    level: int = logging.INFO,
+    level: int | None = None,
     log_file: Optional[str] = "sim.log",
     output_dir: str = "output",
+    console: bool = False,
     include_sim_time: bool = True,
     fmt: Optional[str] = None,
 ) -> None:
     """
     Configure logging for the simulation. Call once at startup.
 
+    Log level is VERBOSE-aware: if env VERBOSE=1 (or true/yes/on), level becomes DEBUG.
+    Otherwise the given level is used (default INFO).
+
     Args:
-        level: Logging level (e.g. logging.DEBUG, logging.INFO).
+        level: Logging level (e.g. logging.DEBUG, logging.INFO). Default INFO unless VERBOSE is set.
         log_file: If set, write logs to this file under output_dir (default: output/sim.log).
         output_dir: Folder for log files; created if it does not exist. Ignored if log_file is None.
+        console: If True, also log to the terminal. Default False (file only).
         include_sim_time: If True, use a formatter that shows [t=...] when sim time is set.
         fmt: Custom format string. If None, a default is used.
     """
+    load_dotenv()
+    if level is None:
+        level = _level_from_env() or logging.INFO
+    else:
+        env_level = _level_from_env()
+        if env_level is not None:
+            level = env_level
     root = logging.getLogger("simulation")
     root.setLevel(level)
 
     if fmt is None:
         if include_sim_time:
-            fmt = "%(asctime)s %(sim_time)s%(levelname)s %(name)s: %(message)s"
+            fmt = "%(asctime)s %(sim_time)s%(levelname)s %(name)s:%(extras)s %(message)s"
         else:
             fmt = "%(asctime)s %(levelname)s %(name)s: %(message)s"
     if include_sim_time:
@@ -76,24 +120,15 @@ def setup_logging(
     else:
         formatter = logging.Formatter(fmt, datefmt="%H:%M:%S")
 
-    # Ensure sim_time exists on records when using SimTimeFormatter
-    if include_sim_time:
-        old_factory = logging.getLogRecordFactory()
+    # SimTimeFormatter sets record.sim_time in format(); no record_factory so
+    # extra={"sim_time": t} doesn't conflict with an existing record attribute.
 
-        def record_factory(*args, **kwargs):
-            record = old_factory(*args, **kwargs)
-            if not hasattr(record, "sim_time"):
-                record.sim_time = ""
-            return record
-
-        logging.setLogRecordFactory(record_factory)
-
-    # Console handler
-    if not root.handlers:
-        console = logging.StreamHandler(sys.stdout)
-        console.setLevel(level)
-        console.setFormatter(formatter)
-        root.addHandler(console)
+    # Console handler (only if requested)
+    if console and not root.handlers:
+        console_handler = logging.StreamHandler(sys.stdout)
+        console_handler.setLevel(level)
+        console_handler.setFormatter(formatter)
+        root.addHandler(console_handler)
 
     # File handler: write to output_dir/log_file
     if log_file:
