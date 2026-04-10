@@ -10,3 +10,4 @@ def get_records_as_printable_string(components: Iterable) -> str:
             component_id = getattr(component, "component_id", id(component))
             result += f"{component_id}: {list(records)}\n"
     return result if result else "(no sink records)\n"
+

@@ -12,7 +12,7 @@ for p in (_src, _root):
 
 import logging
 from src.engine import Engine
-from src.components import SourceComponent, DelayComponent, SinkComponent
+from src.components import SourceComponent, DelayComponent, SinkComponent, TransformerComponent
 from src.logger import setup_logging
 from src.stats import get_records_as_printable_string
 from src.utils import UniformDistribution
@@ -20,16 +20,27 @@ from src.events import Event
 
 
 def simple_simulation():
-    engine = Engine(startup_events=[Event(0, "source", "Generate", None, {})], visualize=True)
-    source = SourceComponent("source", lambda _: "token", UniformDistribution(0, 10))
+    engine = Engine(startup_events=[Event(0, "source", "Generate", None, {})], visualize=False)
+    source = SourceComponent("source", lambda _: {"name": "token", "value": UniformDistribution(0, 10).sample()}, UniformDistribution(0, 10))
 
     delay = DelayComponent("delay", UniformDistribution(0, 10), capacity=1000)
+    
+    def transformation_function(_, event: Event) -> dict:
+        original = event.entity
+        if original["value"] > 5:
+            original["value"] = original["value"] - 5
+            original["name"] = "token2"
+        return original
+    
+    transformer = TransformerComponent("transformer", transformation_function)
     sink = SinkComponent("sink")
     source.output_to(delay)
-    delay.output_to(sink)
+    delay.output_to(transformer)
+    transformer.output_to(sink)
 
     engine.add_component(source)
     engine.add_component(delay)
+    engine.add_component(transformer)
     engine.add_component(sink)
     engine.run()
     return get_records_as_printable_string(engine.get_results())

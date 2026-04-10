@@ -15,21 +15,19 @@ from src.engine import Engine
 from src.components import SourceComponent, DelayComponent, SinkComponent
 from src.logger import setup_logging
 from src.stats import get_records_as_printable_string
-from src.utils import UniformDistribution
+from src.utils import UniformDistribution, ConstantDistribution
 from src.events import Event
 
 
 def simple_simulation():
     engine = Engine(startup_events=[Event(0, "source", "Generate", None, {})], visualize=True)
-    source = SourceComponent("source", lambda _: "token", UniformDistribution(0, 10))
 
-    delay = DelayComponent("delay", UniformDistribution(0, 10), capacity=1000)
+    source = SourceComponent("Clock", lambda _: "tick", ConstantDistribution(1))
     sink = SinkComponent("sink")
-    source.output_to(delay)
-    delay.output_to(sink)
+
+    source.output_to(sink)
 
     engine.add_component(source)
-    engine.add_component(delay)
     engine.add_component(sink)
     engine.run()
     return get_records_as_printable_string(engine.get_results())
