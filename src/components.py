@@ -1,5 +1,5 @@
 from abc import ABC, abstractmethod
-from typing import Callable
+from typing import Any, Callable
 
 from engine import Engine
 from events import Event
@@ -8,184 +8,238 @@ from utils import Distribution
 
 
 class Component(ABC):
+    """
+    Component is the base class for all components.
+    It is responsible for handling events and connecting/disconnecting components.
+    """
     def __init__(self, component_id: str, type: str):
         self.component_id = component_id
-        self._outputs = []
+        self.outputs = []
         self.inputs = []
         self.type = type
         self.log = get_logger(f"{type}_{component_id}")
         self.handleable_events = {}
 
-    def probe_next_free_time(self, engine: Engine, rank: int = 0) -> float:
-        return engine.get_current_time()
+    @abstractmethod
+    def output_to(self, other: "Component") -> None:
+        # Connect this component's output to the other component's input
+        pass
 
-    def connect(self, other: "Component") -> None:
-        self._outputs.append(other)
-        other.inputs.append(self)
-
-    def disconnect(self, other: "Component") -> None:
-        self._outputs.remove(other)
-        other.inputs.remove(self)
+    @abstractmethod
+    def disconnect_output_to(self, other: "Component") -> None:
+        # Disconnect this component's output from the other component's input
+        pass
 
     def set_handleable_event(self, event_type: str, handler: Callable[[Engine, Event], None]) -> None:
         self.handleable_events[event_type] = handler
+        self.log.info(f"Component {self.component_id} set handleable event {event_type}")
 
     def handle_event(self, engine: Engine, event: Event) -> None:
         try:
             self.handleable_events[event.type](engine, event)
         except KeyError:
-            raise ValueError(f"Invalid event type: {event.type}")
+            raise ValueError(f"Component {self.component_id} has no handler for event type: {event.type}")
+        self.log.info(f"Component {self.component_id} handled event {event.type}")
 
 
-class SingleOutputComponent(Component):
+class SingleIOComponent(Component):
+    """
+    SingleIOComponent is a component that has one input and one output.
+    It is responsible for connecting/disconnecting components and handling events.
+    """
     def __init__(self, component_id: str, type: str):
         super().__init__(component_id, type)
-        self.output = None
         self.set_handleable_event("Departure", self._default_handle_departure)
 
-    def connect(self, other: "Component") -> None:
-        if self.output is not None:
-            raise ValueError("Component already connected")
-        self.output = other
-        super().connect(other)
+    def output_to(self, other: "Component") -> None:
+        if len(self.outputs) > 0:
+            raise ValueError(f"Component {self.component_id} is already connected to {self.outputs[0].component_id}")
+        self.outputs.append(other)
+        other.inputs.append(self)
+        self.log.info(f"Component {self.component_id} connected to {other.component_id}")
     
-    def disconnect(self, other: "Component") -> None:
-        if self.output is not other:
-            raise ValueError("Component not connected")
-        self.output = None
-        super().disconnect(other)
+    def disconnect_output_to(self, other: "Component") -> None:
+        if other not in self.outputs:
+            raise ValueError(f"Component {self.component_id} is not connected to {other.component_id}")
+        self.outputs.remove(other)
+        other.inputs.remove(self)
+        self.log.info(f"Component {self.component_id} disconnected from {other.component_id}")
 
-    def _default_handle_departure(self, engine: Engine, _) -> None:
+    @property
+    def output(self) -> "Component":
+        # Return the first connected component that is an output
+        if len(self.outputs) == 0:
+            raise ValueError(f"Component {self.component_id} has no outputs")
+        return self.outputs[0]
+
+    @property
+    def input(self) -> "Component":
+        # Return the first connected component that is an input
+        if len(self.inputs) == 0:
+            raise ValueError(f"Component {self.component_id} has no inputs")
+        return self.inputs[0]
+    
+    def _default_handle_departure(self, engine: Engine, event: Event) -> None:
         current_time = engine.get_current_time()
-        self.log.info("Departure event received (default handler)", extra={"sim_time": current_time})
-        arrival_event = Event(current_time, self.output.component_id, "Arrival", (), {})
+        self.log.info("Default Departure event received", extra={"sim_time": current_time})
+        arrival_event = Event(current_time, self.output.component_id, "Arrival", event.entity, {})
         engine.add_event(arrival_event)
 
 
-class SourceComponent(SingleOutputComponent):
-    def __init__(self, component_id: str, interval: Distribution):
+class SourceComponent(SingleIOComponent):
+    """
+    SourceComponent is a component that generates arrivals.
+    It is responsible for generating arrivals and sending them to the output.
+
+    If interval is provided, it will generate arrivals at the interval.
+    If interval is not provided, only the first Generate (or manual Arrivals
+    emitted by other logic) will drive output; schedule further Generate events
+    yourself if needed.
+
+    default_generated_object is the object that will be generated by the source component.
+    If the Generate event contains an entity, it will override the default_generated_object.
+
+    Event flow:
+    self Generate -> self Departure -> output Arrival (entity on Departure is forwarded)
+    Source components are driven by Generate; Departure completes the handoff to the output.
+    """
+    def __init__(self, component_id: str, default_generated_entity: Any = None, interval: Distribution = None):
         super().__init__(component_id, "Source")
         self.interval = interval
-        self.set_handleable_event("Generate", self._handle_generate)
+        self.default_generated_entity = default_generated_entity
 
-    def _handle_generate(self, engine: Engine, _) -> None:
+        self.set_handleable_event("Generate", self._default_handle_generate)
+
+    @property
+    def input(self) -> "Component":
+        raise ValueError(f"Source component {self.component_id} cannot have an input")
+
+    def _default_handle_generate(self, engine: Engine, event: Event) -> None:
         current_time = engine.get_current_time()
-        self.log.info("Generate event received", extra={"sim_time": current_time})
+        self.log.info("Default Generate event received", extra={"sim_time": current_time})
+        passed_entity = event.entity if event.entity is not None else self.default_generated_entity
 
-        next_time = current_time + self.interval.sample()
-        next_event = Event(next_time, self.component_id, "Generate", (), {})
-        engine.add_event(next_event)
+        if passed_entity is None:
+            raise ValueError(f"Source component {self.component_id} has no entity to pass")
 
-        arrival_event = Event(current_time, self.output.component_id, "Arrival", (), {})
-        engine.add_event(arrival_event)
+        if self.interval is not None:
+            next_time = current_time + self.interval.sample()
+            next_generate_event = Event(next_time, self.component_id, "Generate", passed_entity, {})
+            engine.add_event(next_generate_event)
+
+        departure_event = Event(current_time, self.component_id, "Departure", passed_entity, {})
+        engine.add_event(departure_event)
 
 
+class SinkComponent(SingleIOComponent):
+    """
+    SinkComponent is a component that receives arrivals and adds them to the records.
+    It is responsible for receiving arrivals and adding them to the records as tuples (time, entity).
 
-class SinkComponent(Component):
+    Sink components should only be controlled by the Arrival event.
+    """
     def __init__(self, component_id: str):
         super().__init__(component_id, "Sink")
         self.records = []
+
         self.set_handleable_event("Arrival", self._handle_arrival)
+        del self.handleable_events["Departure"]
 
-    def _handle_arrival(self, engine: Engine, _: Event) -> None:
+    @property
+    def output(self) -> "Component":
+        raise ValueError(f"Sink component {self.component_id} cannot have an output")
+
+    def _handle_arrival(self, engine: Engine, event: Event) -> None:
         current_time = engine.get_current_time()
-
         self.log.info("Arrival event received, adding to records", extra={"sim_time": current_time})
-        self.records.append(current_time)
+        self.records.append((current_time, event.entity))
 
 
+class DelayComponent(SingleIOComponent):
+    """
+    DelayComponent is a component that delays arrivals and sends them to the output.
+    It is responsible for delaying arrivals and sending them to the output.
 
-class DelayComponent(SingleOutputComponent):
+    Delay components should only be controlled by the Arrival event.
+    """
     def __init__(self, component_id: str, delay_interval: Distribution, capacity: int = 1):
         super().__init__(component_id, "Delay")
         self.delay_interval = delay_interval
         self.capacity = capacity
         self.content = []
+
         self.set_handleable_event("Arrival", self._handle_arrival)
         self.set_handleable_event("Departure", self._handle_departure_delay)
 
     @property
-    def size(self) -> int:
+    def count(self) -> int:
         return len(self.content)
 
-    def probe_next_free_time(self, engine: Engine, rank: int = 0) -> float:
-        current_time = engine.get_current_time()
-        if rank >= len(self.content):
-            return current_time
-        return sorted(self.content)[rank]
-
-    def _handle_arrival(self, engine: Engine, _: Event) -> None:
+    def _handle_arrival(self, engine: Engine, event: Event) -> None:
         current_time = engine.get_current_time()
 
-        if self.size >= self.capacity:
+        if self.count >= self.capacity:
             raise ValueError(f"Delay component {self.component_id} is full")
 
         delay = self.delay_interval.sample()
-        self.log.info("Arrival event received", extra={"sim_time": current_time, "delay": delay, "size": self.size})
+        self.log.info("Arrival event received", extra={"sim_time": current_time, "delay": delay, "count": self.count})
 
         next_time = current_time + delay
-        self.content.append(next_time)
-        next_departure_event = Event(next_time, self.component_id, "Departure", (), {})
+        self.content.append((next_time, event.entity))
+        next_departure_event = Event(next_time, self.component_id, "Departure", event.entity, {})
         engine.add_event(next_departure_event)
 
-    def _handle_departure_delay(self, engine: Engine, _: Event) -> None:
+    def _handle_departure_delay(self, engine: Engine, event: Event) -> None:
         current_time = engine.get_current_time()
         try:
-            self.content.remove(current_time)
+            self.content.remove((current_time, event.entity))
         except ValueError:
             raise ValueError(f"Element unable to leave delay component {self.component_id} at time {current_time}")
-        self._default_handle_departure(engine, _)
+        self._default_handle_departure(engine, event)
 
 
-class QueueComponent(SingleOutputComponent):
-    """Single-server queue: Arrival enqueues; Departure serves one and sends to output. Uses probe_next_free_time for scheduling."""
+class AssertComponent(SingleIOComponent):
+    """
+    AssertComponent is a component that drops arrivals that do not satisfy the condition.
+    It is responsible for dropping arrivals that do not satisfy the condition.
 
-    def __init__(self, component_id: str, service_distribution: Distribution, capacity: int = 1):
-        super().__init__(component_id, "Queue")
-        self.service_distribution = service_distribution
-        self.capacity = capacity
-        self.content: list[float] = []  # scheduled departure time for each item in the queue
+    Assert components should only be controlled by the Arrival event.
+
+    condition is a function that takes an Engine and an Event and returns a boolean.
+
+    fail_handler is a function that is called when the condition fails.
+    Assert component provides two default fail handlers: assert_fail_drop and assert_fail_error.
+    assert_fail_drop records the failure and does not emit anything downstream (true drop).
+    assert_fail_error raises a ValueError.
+    """
+    def assert_fail_drop(self, engine: Engine, event: Event) -> None:
+        self.dropped_elements.append((engine.get_current_time(), event.entity))
+
+    def assert_fail_error(self, _, event: Event) -> None:
+        raise ValueError(f"Assert component {self.component_id} failed, entity: {event.entity}, condition: {self.condition}")
+
+    def __init__(
+        self,
+        component_id: str,
+        condition: Callable[[Engine, Event], bool],
+        fail_handler: Callable[[Engine, Event], None] | None = None,
+    ):
+        super().__init__(component_id, "Assert")
+        self.condition = condition
+        self.fail_handler = fail_handler if fail_handler is not None else self.assert_fail_drop
+        self.dropped_elements = []
         self.set_handleable_event("Arrival", self._handle_arrival)
-        self.set_handleable_event("Departure", self._handle_departure_queue)
+        del self.handleable_events["Departure"]
 
-    @property
-    def size(self) -> int:
-        return len(self.content)
-
-    def probe_next_free_time(self, engine: Engine, rank: int = 0) -> float:
-        """When will the item at position rank (0=next to leave) finish service?"""
-        if rank < len(self.content):
-            return sorted(self.content)[rank]
-        if self.content:
-            return max(self.content)
-        return engine.get_current_time()
-
-    def _handle_arrival(self, engine: Engine, _: Event) -> None:
+    def _handle_arrival(self, engine: Engine, event: Event) -> None:
         current_time = engine.get_current_time()
-        if self.size >= self.capacity:
-            raise ValueError(f"Queue component {self.component_id} is full (capacity {self.capacity})")
-        if self.size == 0:
-            dep_time = current_time + self.service_distribution.sample()
-            self.content.append(dep_time)
-            engine.add_event(Event(dep_time, self.component_id, "Departure", (), {}))
-            self.log.info("Arrival (queue was empty), scheduled departure", extra={"sim_time": current_time, "dep_time": dep_time})
+        if not self.condition(engine, event):
+            self.log.info(
+                f"Assert component {self.component_id} failed, calling fail handler",
+                extra={"sim_time": current_time},
+            )
+            self.fail_handler(engine, event)
         else:
-            next_free = self.probe_next_free_time(engine, rank=len(self.content) - 1)
-            if len(self.content) > 0:
-                next_free = max(self.content)
-            dep_time = next_free + self.service_distribution.sample()
-            self.content.append(dep_time)
-            self.log.info("Arrival (queue had items), appended departure", extra={"sim_time": current_time, "dep_time": dep_time})
-
-    def _handle_departure_queue(self, engine: Engine, _: Event) -> None:
-        current_time = engine.get_current_time()
-        try:
-            self.content.remove(current_time)
-        except ValueError:
-            raise ValueError(f"Queue component {self.component_id}: no departure at time {current_time}")
-        self._default_handle_departure(engine, _)
-        if self.content:
-            next_dep = min(self.content)
-            engine.add_event(Event(next_dep, self.component_id, "Departure", (), {}))
-            self.log.info("Departure, scheduled next", extra={"sim_time": current_time, "next_dep": next_dep, "remaining": self.size})
+            arrival_event = Event(current_time, self.output.component_id, "Arrival", event.entity, {})
+            engine.add_event(arrival_event)
 

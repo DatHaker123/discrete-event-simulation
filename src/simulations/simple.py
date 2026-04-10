@@ -20,12 +20,14 @@ from src.events import Event
 
 
 def simple_simulation():
-    engine = Engine(startup_events=[Event(0, "source", "Generate", (), {})])
-    source = SourceComponent("source", UniformDistribution(0, 10))
-    delay = DelayComponent("delay", UniformDistribution(0, 10), capacity=3)
+    engine = Engine(startup_events=[Event(0, "source", "Generate", None, {})], visualize=True)
+    source = SourceComponent("source", "token", UniformDistribution(0, 10))
+
+    delay = DelayComponent("delay", UniformDistribution(0, 10), capacity=1000)
     sink = SinkComponent("sink")
-    source.connect(delay)
-    delay.connect(sink)
+    source.output_to(delay)
+    delay.output_to(sink)
+
     engine.add_component(source)
     engine.add_component(delay)
     engine.add_component(sink)

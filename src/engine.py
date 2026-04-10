@@ -132,7 +132,7 @@ class Engine:
         nodes = list(self._components.keys())
         edges = []
         for c in self._components.values():
-            for out in getattr(c, "_outputs", []) or getattr(c, "output", []) or []:
+            for out in getattr(c, "outputs", []) or []:
                 if out is not None:
                     try:
                         edges.append((c.component_id, out.component_id))

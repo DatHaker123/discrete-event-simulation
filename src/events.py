@@ -1,13 +1,14 @@
 """Shared event type and priority. No dependency on engine or components."""
 
 from dataclasses import dataclass
+from typing import Any
 
 @dataclass
 class Event:
     time: float
     handler_id: str
     type: str
-    args: tuple
+    entity: Any
     kwargs: dict
 
 
