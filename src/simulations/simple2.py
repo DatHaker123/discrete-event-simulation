@@ -21,18 +21,36 @@ from src.events import Event
 
 def simple_simulation():
     engine = Engine(startup_events=[Event(0, "source", "Generate", None, {})], visualize=False)
-    source = SourceComponent("source", lambda _: {"name": "token", "value": UniformDistribution(0, 10).sample()}, UniformDistribution(0, 10))
+    engine.simulation_variables["token_count"] = 0
+
+    def token_generator(engine: Engine, _: dict) -> dict:
+        engine.simulation_variables["token_count"] += 1
+        return {"name": "token", "value": engine.simulation_variables["token_count"]}
+
+    source = SourceComponent("source", token_generator, UniformDistribution(0, 10))
 
     delay = DelayComponent("delay", UniformDistribution(0, 10), capacity=1000)
     
-    def transformation_function(_, event: Event) -> dict:
+    def transformation_function(engine: Engine, event: Event, state: dict) -> dict:
         original = event.entity
         if original["value"] > 5:
             original["value"] = original["value"] - 5
             original["name"] = "token2"
+        
+        if engine.simulation_variables["token_count"] > 10:
+            original["name"] = "token3"
+            original["value"] = engine.simulation_variables["token_count"] - 10
+
+        if state["token_count"] > 15:
+            original["name"] = "token4"
+            original["value"] = state["token_count"] - 15
+        state["token_count"] += 1
         return original
     
-    transformer = TransformerComponent("transformer", transformation_function)
+    transformer = TransformerComponent("transformer", transformation_function, track_state=True)
+    transformer.state["token_count"] = 0
+
+    
     sink = SinkComponent("sink")
     source.output_to(delay)
     delay.output_to(transformer)

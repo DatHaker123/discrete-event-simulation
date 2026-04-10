@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import heapq
 import os
-from typing import TYPE_CHECKING, Callable
+from typing import TYPE_CHECKING, Any, Callable
 
 from events import Event, priority_for_event_type
 from logger import get_logger
@@ -60,6 +60,8 @@ class Engine:
         self.startup_events = startup_events if startup_events is not None else []
         self.visualize = visualize
         self.output_dir = output_dir
+        #: User-defined simulation state (counters, parameters, etc.); populate in your model setup.
+        self.simulation_variables: dict[str, Any] = {}
 
     def add_event(self, event: Event):
         self.log.info("Adding event", extra={"sim_time": self._current_time, "event_type": event.type, "event_handler_id": event.handler_id})

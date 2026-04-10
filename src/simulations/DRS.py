@@ -22,7 +22,7 @@ from src.events import Event
 def simple_simulation():
     engine = Engine(startup_events=[Event(0, "source", "Generate", None, {})], visualize=True)
 
-    source = SourceComponent("Clock", lambda _: "tick", ConstantDistribution(1))
+    source = SourceComponent("Clock", lambda _e, _s: "tick", ConstantDistribution(1))
     sink = SinkComponent("sink")
 
     source.output_to(sink)

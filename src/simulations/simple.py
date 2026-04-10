@@ -21,7 +21,7 @@ from src.events import Event
 
 def simple_simulation():
     engine = Engine(startup_events=[Event(0, "source", "Generate", None, {})], visualize=True)
-    source = SourceComponent("source", lambda _: "token", UniformDistribution(0, 10))
+    source = SourceComponent("source", lambda _e, _s: "token", UniformDistribution(0, 10))
 
     delay = DelayComponent("delay", UniformDistribution(0, 10), capacity=1000)
     sink = SinkComponent("sink")
