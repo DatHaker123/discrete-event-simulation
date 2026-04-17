@@ -3,10 +3,10 @@ from __future__ import annotations
 from abc import ABC, abstractmethod
 from typing import Any, Callable
 
-from engine import Engine
-from events import Event
-from logger import get_logger
-from utils import Distribution
+from .engine import Engine
+from .events import Event
+from ..modules.logger import get_logger
+from ..modules.utils import Distribution
 
 # Per-component ``state`` dict type; handlers receive the full ``Component`` (see ``EventHandler`` below).
 ComponentState = dict[str, Any]

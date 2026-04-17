@@ -13,7 +13,7 @@ import networkx as nx
 from matplotlib.backends.backend_pdf import PdfPages
 
 if TYPE_CHECKING:
-    from engine import Engine
+    from ..core.engine import Engine
 
 PDF_QUEUE_LINES = 14
 

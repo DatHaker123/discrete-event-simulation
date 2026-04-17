@@ -25,17 +25,14 @@ _root = Path(__file__).resolve().parent.parent.parent
 _src = _root / "src"
 for p in (_src, _root):
     if str(p) not in sys.path:
-        sys.path.insert(0, str(p))
+        sys.path.insert(0, str(p))  # so ``from src.core`` / ``from src.modules`` work when run as script
 
 import logging
 from typing import Any
 
-from src.engine import Engine
-from src.components import Component, SourceComponent, SinkComponent, TransformerComponent
-from src.events import Event
-from src.logger import setup_logging
-from src.stats import get_records_as_printable_string
-from src.utils import ConstantDistribution, Distribution, UniformDistribution
+from src.core import Component, Engine, Event, SinkComponent, SourceComponent, TransformerComponent
+from src.modules import get_records_as_printable_string, setup_logging
+from src.modules.utils import ConstantDistribution, Distribution, UniformDistribution
 
 
 # --- Tuning (balance inflow vs slow/fast outflow for visible up/down stockpile) ---

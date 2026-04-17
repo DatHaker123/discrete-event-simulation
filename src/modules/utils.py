@@ -19,6 +19,7 @@ class Distribution(ABC):
     def sample(self) -> float:
         pass
 
+
 class UniformDistribution(Distribution):
     def __init__(self, min: float, max: float):
         super().__init__("Uniform")
@@ -28,6 +29,7 @@ class UniformDistribution(Distribution):
     def sample(self) -> float:
         return random.uniform(self.min, self.max)
 
+
 class ExponentialDistribution(Distribution):
     def __init__(self, rate: float):
         super().__init__("Exponential")
@@ -35,6 +37,7 @@ class ExponentialDistribution(Distribution):
 
     def sample(self) -> float:
         return random.expovariate(self.rate)
+
 
 class ConstantDistribution(Distribution):
     def __init__(self, value: float):

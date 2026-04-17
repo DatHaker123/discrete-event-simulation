@@ -3,7 +3,7 @@
 import sys
 from pathlib import Path
 
-# Add project root and src so both "src.xxx" and internal "from events import" etc. resolve
+# Add project root and src so ``from src.core`` / ``from src.modules`` resolve
 _root = Path(__file__).resolve().parent.parent.parent
 _src = _root / "src"
 for p in (_src, _root):
@@ -11,12 +11,9 @@ for p in (_src, _root):
         sys.path.insert(0, str(p))
 
 import logging
-from src.engine import Engine
-from src.components import SourceComponent, DelayComponent, SinkComponent
-from src.logger import setup_logging
-from src.stats import get_records_as_printable_string
-from src.utils import UniformDistribution
-from src.events import Event
+from src.core import DelayComponent, Engine, Event, SinkComponent, SourceComponent
+from src.modules import get_records_as_printable_string, setup_logging
+from src.modules.utils import UniformDistribution
 
 
 def simple_simulation():

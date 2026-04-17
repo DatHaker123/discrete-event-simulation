@@ -4,11 +4,12 @@ import heapq
 import os
 from typing import TYPE_CHECKING, Any, Callable
 
-from events import Event, priority_for_event_type
-from logger import get_logger
+from .events import Event, priority_for_event_type
+from ..modules.logger import get_logger
 
 if TYPE_CHECKING:
-    from components import Component
+    from .components import Component
+
 
 class EventQueue:
     def __init__(self):
@@ -88,7 +89,8 @@ class Engine:
 
         visualizer = None
         if self.visualize:
-            from visualization import Visualizer
+            from ..modules.visualization import Visualizer
+
             visualizer = Visualizer(*self.get_graph(), output_dir=self.output_dir)
 
         FRAME_EVENT_TYPES = frozenset({"Departure", "Arrival", "Generate"})

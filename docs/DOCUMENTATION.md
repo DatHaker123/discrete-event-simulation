@@ -7,9 +7,9 @@ A Python framework for discrete-event simulation (DES): events are processed in 
 ## Overview
 
 - **Engine**: Simulation time, event queue, registered components, optional `simulation_variables` dict, and `run()` dispatch.
-- **Events**: Dated messages with a type, target `handler_id`, and optional **entity** payload. `priority_for_event_type()` in `events.py` breaks ties when two events share the same time.
+- **Events**: Dated messages with a type, target `handler_id`, and optional **entity** payload. `priority_for_event_type()` in `src/core/events.py` breaks ties when two events share the same time.
 - **Components**: Register handlers per event type; each handler receives `(engine, event, component)` so you can use `component.state`, `component.output`, etc. without closures.
-- **Output**: Logs under `output/` (and optionally console). With `visualize=True`, each run writes a UUID-named PDF (graph + queue per step). Sinks keep `records`; `stats.get_records_as_printable_string(engine.get_results())` formats sink tables and optional **state history**.
+- **Output**: Logs under `output/` (and optionally console). With `visualize=True`, each run writes a UUID-named PDF (graph + queue per step). Sinks keep `records`; **`get_records_as_printable_string`** (`src.modules`) formats sink tables and optional **state history**.
 
 ---
 
@@ -32,13 +32,15 @@ discrete-event-simulation/
 │   ├── sim.log
 │   └── <uuid>.pdf
 └── src/
-    ├── engine.py           # Engine, EventQueue
-    ├── events.py           # Event, priority_for_event_type
-    ├── components.py       # Component, SingleIOComponent, Source, Delay, Sink, Assert, Transformer
-    ├── utils.py            # Distributions, RNG seed
-    ├── logger.py           # setup_logging, get_logger
-    ├── stats.py            # get_records_as_printable_string
-    ├── visualization.py    # Visualizer (PDF frames)
+    ├── core/               # Engine, events, components
+    │   ├── engine.py
+    │   ├── events.py
+    │   └── components.py
+    ├── modules/            # Logging, stats, distributions, visualization
+    │   ├── logger.py
+    │   ├── stats.py
+    │   ├── utils.py
+    │   └── visualization.py
     └── simulations/
         ├── simple.py       # source → delay → sink
         ├── simple2.py      # source → delay → transformer → sink (example)
@@ -49,7 +51,7 @@ discrete-event-simulation/
 
 ## Core concepts
 
-### Events (`src/events.py`)
+### Events (`src/core/events.py`)
 
 - **`Event(time, handler_id, type, entity, kwargs)`** (dataclass)  
   - **`time`**: Simulation time when the event is processed.  
@@ -61,7 +63,7 @@ discrete-event-simulation/
 - **`priority_for_event_type(event_type) -> int`**  
   Lower value = higher priority when times are equal (default order: `Generate`, then `Arrival`, then `Departure`).
 
-### Engine (`src/engine.py`)
+### Engine (`src/core/engine.py`)
 
 - **`Engine(time_limit=..., startup_events=..., visualize=True, output_dir="output")`**  
   - **`time_limit`**: When not `None`, an internal `"End"` event is scheduled at that time to stop the run. Overridable by env **`MAX_SIM_TIME`**.  
@@ -79,7 +81,7 @@ discrete-event-simulation/
 
 - **`get_graph()`** — `(node_ids, edges)` using each component’s **`outputs`** list.
 
-### Components (`src/components.py`)
+### Components (`src/core/components.py`)
 
 #### Base: `Component(component_id, type, track_state=False)`
 
@@ -89,7 +91,7 @@ discrete-event-simulation/
 - **`set_handleable_event(event_type, handler)`** — Registers an **`EventHandler`** (see below).
 - **`handle_event(engine, event)`** — Invokes the handler for `event.type`, then records state history if `track_state`.
 
-**`EventHandler`** (defined at bottom of `components.py`):  
+**`EventHandler`** (defined in `src/core/components.py`):  
 `Callable[[Engine, Event, Component], None]`
 
 The third argument is **always the concrete component instance** receiving the event (e.g. `SourceComponent`), so handlers can schedule:
@@ -144,11 +146,9 @@ Default handlers are **public methods** so custom wrappers can delegate, e.g.
 Example (see `src/simulations/simple.py`):
 
 ```python
-from src.engine import Engine
-from src.components import SourceComponent, DelayComponent, SinkComponent
-from src.stats import get_records_as_printable_string
-from src.utils import UniformDistribution
-from src.events import Event
+from src.core import DelayComponent, Engine, Event, SinkComponent, SourceComponent
+from src.modules import get_records_as_printable_string
+from src.modules.utils import UniformDistribution
 
 engine = Engine(startup_events=[Event(0, "source", "Generate", None, {})], visualize=True)
 source = SourceComponent("source", lambda _e, _comp: "token", UniformDistribution(0, 10))
@@ -168,22 +168,22 @@ print(get_records_as_printable_string(engine.get_results()))
 
 ### Environment (`.env`)
 
-- **`RANDOM_SEED`** — Seeded at import of `utils` for reproducible distributions.  
+- **`RANDOM_SEED`** — Seeded at import of `src.modules.utils` for reproducible distributions.  
 - **`MAX_SIM_TIME`** — Engine time limit if set.  
 - **`VERBOSE`** — `1` / `true` / `yes` / `on` → DEBUG logging.
 
-### Logging (`src/logger.py`)
+### Logging (`src/modules/logger.py`)
 
 - **`setup_logging(...)`** — Call once; file under `output/` by default.  
 - **`get_logger(name)`** — Use `extra={"sim_time": engine.get_current_time()}` for sim time in the formatted line.
 
 ---
 
-## Statistics (`src/stats.py`)
+## Statistics (`src/modules/stats.py`)
 
 - **`get_records_as_printable_string(components)`** — Intended for **`engine.get_results()`**.
 
-  1. **Sink records** — For each component with a **`records`** attribute: a titled block, table columns **`idx`**, **`arrival t`**, **`Δt`** (inter-arrival), **`entity`** (compact representation; dicts via `pprint`).
+  1. **Sink records** — For each component with a **`records`** attribute: a titled block, table columns **`idx`**, **`arrival t`**, **`dt`** (inter-arrival), **`entity`** (compact representation; dicts via `pprint`).
   2. **Recorded component states** — For each component with non-empty **`state_history`**: timestamped shallow snapshots of **`state`** (when **`track_state`** was `True` during the run).
 
 If a section has nothing to show, a short placeholder line is printed for that section.
@@ -200,8 +200,8 @@ With **`visualize=True`** (default), `run()` builds a **`Visualizer`**, calls **
 
 - **Custom components**: Subclass **`Component`** or **`SingleIOComponent`**, implement **`output_to` / `disconnect_output_to`**, register handlers with **`set_handleable_event`**, and schedule events with **`engine.add_event(...)`**.
 - **Replace or wrap a default handler**: After construction, **`set_handleable_event("Arrival", my_handler)`**. Inside **`my_handler`**, call the original public method on the instance (e.g. **`SinkComponent.sink_handle_arrival(comp, engine, event, comp)`**) so pre/post logic composes without recursion, as long as you did not rebind that same name to your wrapper.
-- **Custom distributions**: Subclass **`Distribution`** in **`utils.py`** and implement **`sample() -> float`**.
-- **Event priority**: Adjust **`priority_for_event_type`** in **`events.py`**.
+- **Custom distributions**: Subclass **`Distribution`** in **`src/modules/utils.py`** and implement **`sample() -> float`**.
+- **Event priority**: Adjust **`priority_for_event_type`** in **`src/core/events.py`**.
 
 ---
 

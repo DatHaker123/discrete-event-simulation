@@ -3,6 +3,7 @@
 from dataclasses import dataclass
 from typing import Any
 
+
 @dataclass
 class Event:
     time: float
@@ -25,5 +26,3 @@ def priority_for_event_type(event_type: str) -> int:
         return 3
     else:
         return 0
-
-
