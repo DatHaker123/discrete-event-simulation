@@ -24,7 +24,7 @@ def _format_sink_component_block(cid: str, records: list) -> str:
     lines.extend(
         [
             "",
-            f"    {'idx':>4}  {'arrival t':>12}  {'Δt':>10}  entity",
+            f"    {'idx':>4}  {'arrival t':>12}  {'dt':>10}  entity",
             f"    {'-' * 4}  {'-' * 12}  {'-' * 10}  {'-' * 40}",
         ]
     )

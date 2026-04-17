@@ -47,7 +47,7 @@ class Visualizer:
         self._G.add_edges_from(self._edges)
         self._pos = nx.spring_layout(self._G, seed=42) if self._nodes else {}
         self._frame_idx = 0
-        print(f"Recording frames → {self._path}")
+        print(f"Recording frames -> {self._path}")
 
     def add_frame(self, time_val: float, event, queue_snapshot: list) -> None:
         """Append one page to the PDF for this step."""
@@ -55,7 +55,7 @@ class Visualizer:
         idx = self._frame_idx
         self._frame_idx += 1
         ts = datetime.now().strftime("%H:%M:%S.%f")[:-3]
-        event_desc = f" {event.handler_id} ← {event.type}" if event is not None else " (initial)"
+        event_desc = f" {event.handler_id} <- {event.type}" if event is not None else " (initial)"
         print(f"[{ts}] frame {idx}  sim t={time_val:.2f}{event_desc}")
 
         fig, (ax_graph, ax_queue) = plt.subplots(
@@ -76,7 +76,7 @@ class Visualizer:
             nx.draw_networkx_labels(
                 self._G, self._pos, ax=ax_graph, labels={n: n for n in self._nodes}, font_size=10
             )
-            ax_graph.set_title(f"Component graph — current time t = {time_val:.2f}")
+            ax_graph.set_title(f"Component graph - current time t = {time_val:.2f}")
         else:
             ax_graph.set_axis_off()
             ax_graph.text(
@@ -99,7 +99,7 @@ class Visualizer:
             bbox=dict(boxstyle="round,pad=0.5", facecolor="#ecf0f1", edgecolor="#bdc3c7"),
         )
         fig.suptitle(
-            f"Frame {idx}" + (f" — {event.handler_id} ← {event.type}" if event else " — Initial state"),
+            f"Frame {idx}" + (f" - {event.handler_id} <- {event.type}" if event else " - Initial state"),
             y=1.02,
         )
         self._pdf.savefig(fig, bbox_inches="tight")
@@ -108,5 +108,5 @@ class Visualizer:
     def close(self) -> str:
         """Close the PDF and return the file path."""
         self._pdf.close()
-        print(f"Recorded {self._frame_idx} frames → {self._path}")
+        print(f"Recorded {self._frame_idx} frames -> {self._path}")
         return self._path

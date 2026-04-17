@@ -1,4 +1,4 @@
-## Simple system with a source, a delay, and a sink
+## Simple system with a source, delay, transformer, and sink
 
 import sys
 from pathlib import Path
@@ -12,7 +12,7 @@ for p in (_src, _root):
 
 import logging
 from src.engine import Engine
-from src.components import SourceComponent, DelayComponent, SinkComponent, TransformerComponent
+from src.components import Component, SourceComponent, DelayComponent, SinkComponent, TransformerComponent
 from src.logger import setup_logging
 from src.stats import get_records_as_printable_string
 from src.utils import UniformDistribution
@@ -23,34 +23,34 @@ def simple_simulation():
     engine = Engine(startup_events=[Event(0, "source", "Generate", None, {})], visualize=False)
     engine.simulation_variables["token_count"] = 0
 
-    def token_generator(engine: Engine, _: dict) -> dict:
-        engine.simulation_variables["token_count"] += 1
-        return {"name": "token", "value": engine.simulation_variables["token_count"]}
+    def token_generator(_engine: Engine, _comp: Component) -> dict:
+        _engine.simulation_variables["token_count"] += 1
+        return {"name": "token", "value": _engine.simulation_variables["token_count"]}
 
     source = SourceComponent("source", token_generator, UniformDistribution(0, 10))
 
     delay = DelayComponent("delay", UniformDistribution(0, 10), capacity=1000)
-    
-    def transformation_function(engine: Engine, event: Event, state: dict) -> dict:
+
+    def transformation_function(engine: Engine, event: Event, comp: Component) -> dict:
         original = event.entity
+        st = comp.state
         if original["value"] > 5:
             original["value"] = original["value"] - 5
             original["name"] = "token2"
-        
+
         if engine.simulation_variables["token_count"] > 10:
             original["name"] = "token3"
             original["value"] = engine.simulation_variables["token_count"] - 10
 
-        if state["token_count"] > 15:
+        if st["token_count"] > 15:
             original["name"] = "token4"
-            original["value"] = state["token_count"] - 15
-        state["token_count"] += 1
+            original["value"] = st["token_count"] - 15
+        st["token_count"] += 1
         return original
-    
+
     transformer = TransformerComponent("transformer", transformation_function, track_state=True)
     transformer.state["token_count"] = 0
 
-    
     sink = SinkComponent("sink")
     source.output_to(delay)
     delay.output_to(transformer)

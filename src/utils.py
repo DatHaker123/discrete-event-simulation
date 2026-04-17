@@ -1,3 +1,4 @@
+import math
 import os
 import random
 from abc import ABC, abstractmethod
@@ -42,3 +43,28 @@ class ConstantDistribution(Distribution):
 
     def sample(self) -> float:
         return self.value
+
+
+class PoissonDistribution(Distribution):
+    """
+    Poisson with mean ``mu`` (Knuth's algorithm). ``sample()`` returns a float
+    holding a non-negative integer count, consistent with other distributions here.
+    """
+
+    def __init__(self, mu: float):
+        super().__init__("Poisson")
+        if mu < 0:
+            raise ValueError("Poisson mean mu must be non-negative")
+        self.mu = mu
+
+    def sample(self) -> float:
+        mu = self.mu
+        if mu == 0:
+            return 0.0
+        limit = math.exp(-mu)
+        k = 0
+        p = 1.0
+        while p > limit:
+            k += 1
+            p *= random.random()
+        return float(k - 1)
