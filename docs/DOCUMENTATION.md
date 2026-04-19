@@ -109,7 +109,7 @@ without capturing the block in a closure. Wrong wiring (e.g. calling a source-on
 
 #### `SourceComponent(component_id, entity_generator, interval=None, track_state=False)`
 
-- **`entity_generator(engine, component) -> entity`** — Called on each **`Generate`**; return value becomes the entity for the internal **`Departure`** → downstream **`Arrival`**. The **`entity`** field on the `Generate` event is not used by the default source logic.
+- **`entity_generator(engine, event, component) -> entity`** — Called on each **`Generate`**; return value becomes the entity for the internal **`Departure`** → downstream **`Arrival`**. The **`entity`** field on the `Generate` event is not used by the default source logic.
 - **`interval`**: If set (`Distribution`), schedules the next **`Generate`** on self at `now + sample()`. If `None`, only startup / manually queued generates drive output.
 - Flow: **`Generate`** → **`Departure`** (self) → **`Arrival`** (output). Public **`default_handle_generate`**.
 
@@ -151,7 +151,7 @@ from src.modules import get_records_as_printable_string
 from src.modules.utils import UniformDistribution
 
 engine = Engine(startup_events=[Event(0, "source", "Generate", None, {})], visualize=True)
-source = SourceComponent("source", lambda _e, _comp: "token", UniformDistribution(0, 10))
+source = SourceComponent("source", lambda _e, _evt, _comp: "token", UniformDistribution(0, 10))
 delay = DelayComponent("delay", UniformDistribution(0, 10), capacity=1000)
 sink = SinkComponent("sink")
 source.output_to(delay)

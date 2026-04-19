@@ -118,7 +118,7 @@ class SourceComponent(SingleIOComponent):
     emitted by other logic) will drive output; schedule further Generate events
     yourself if needed.
 
-    entity_generator is called as ``(engine, component)`` and must return the entity to emit.
+    entity_generator is called as ``(engine, event, component)`` and must return the entity to emit.
     The entity field on the Generate event is ignored. Use ``component.state`` / ``component.output`` as needed.
 
     Event flow:
@@ -129,7 +129,7 @@ class SourceComponent(SingleIOComponent):
     def __init__(
         self,
         component_id: str,
-        entity_generator: Callable[[Engine, Component], Any],
+        entity_generator: Callable[[Engine, Event, Component], Any],
         interval: Distribution | None = None,
         track_state: bool = False,
     ):
@@ -145,11 +145,11 @@ class SourceComponent(SingleIOComponent):
         raise ValueError(f"Source component {self.component_id} cannot have an input")
 
     def default_handle_generate(
-        self, engine: Engine, _event: Event, component: Component
+        self, engine: Engine, event: Event, component: Component
     ) -> None:
         current_time = engine.get_current_time()
         self.log.info("Default Generate event received", extra={"sim_time": current_time})
-        entity = self.entity_generator(engine, component)
+        entity = self.entity_generator(engine, event, component)
 
         if entity is None:
             raise ValueError(f"Source component {self.component_id} entity_generator returned None")

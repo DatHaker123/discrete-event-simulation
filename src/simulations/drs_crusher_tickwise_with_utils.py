@@ -1,34 +1,21 @@
-## DRS-style stockpile: constant-rate ore feed → crusher (two modes + thresholds) → sink
+## DRS-style stockpile: constant-rate ore feed -> crusher (mode rules via DRS_utils) -> sink
 #
-# The crusher holds a stockpile. Each source tick adds raw ore. Each crusher arrival adds
-# incoming mass to the pile, then removes a processing amount drawn from a mode-dependent
-# distribution (slow vs fast). Mode switches with hysteresis on stockpile level so the
-# stockpile time series tends to oscillate (classic sawtooth / inventory swing).
-#
-# With track_state=True, ``Component.handle_event`` snapshots ``state`` after each handler.
-# Seed full ``state`` (constants + zeros) before ``engine.run()``; handlers only update dynamics.
-#
-# Source ``state``: feeds, total_feed_tonnes, last_raw_tonnes, nominal_feed_dt.
-# Crusher ``state``: stockpile, mode, last_raw_in, last_crushed, arrivals,
-#   total_raw_in, total_crushed_out.
-# (Crusher also runs a same-time Departure after each Arrival; Departure does not change state,
-#   so consecutive duplicate timestamps in raw ``state_history`` are normal.)
-#
-# Tune: SOURCE_INTERVAL, RAW_BATCH, SLOW_CRUSH, FAST_CRUSH, HIGH_STOCK, LOW_STOCK, TIME_LIMIT
-# Run as script: ``python -m src.simulations.drs_crusher --plot`` for stockpile figure (UUID-named PNG under output/).
+# Same behavior as drs_crusher_tickwise.py, but crusher mode selection uses
+# ModeResolver/ModeRule/Constraint from src.modules.DRS_utils.
 
 import sys
 import uuid
+from dataclasses import dataclass
 from pathlib import Path
+from typing import Any
 
 _root = Path(__file__).resolve().parent.parent.parent
 _src = _root / "src"
 for p in (_src, _root):
     if str(p) not in sys.path:
-        sys.path.insert(0, str(p))  # so ``from src.core`` / ``from src.modules`` work when run as script
+        sys.path.insert(0, str(p))
 
 import logging
-from typing import Any
 
 from src.core import Component, Engine, Event, SinkComponent, SourceComponent, TransformerComponent
 from src.modules import (
@@ -37,31 +24,33 @@ from src.modules import (
     setup_logging,
     state_key_series_from_history,
 )
+from src.modules.DRS_utils import Constraint, ModeResolver, ModeRule
 from src.modules.utils import ConstantDistribution, Distribution, UniformDistribution
 
 
-# --- Tuning (balance inflow vs slow/fast outflow for visible up/down stockpile) ---
-SOURCE_INTERVAL = ConstantDistribution(1.0)  # one arrival per time unit (constant rate)
-RAW_BATCH = UniformDistribution(2.4, 3.2)  # tonnes per feed batch (slightly variable)
+SOURCE_INTERVAL = ConstantDistribution(1.0)
+RAW_BATCH = UniformDistribution(2.4, 3.2)
 
-# Tonnes processed per crusher cycle in each mode (sampled each arrival)
 SLOW_CRUSH = UniformDistribution(0.9, 1.6)
 FAST_CRUSH = UniformDistribution(4.2, 6.5)
 
-# Hysteresis: above HIGH switch to fast draining; below LOW switch to slow
 HIGH_STOCK = 20.0
 LOW_STOCK = 9.0
 
 TIME_LIMIT = 220.0
 
-# Full initial ``source.state`` (constants + counters). Generator only bumps counters / last batch.
+
+@dataclass(frozen=True)
+class CrusherModeContext:
+    stockpile_after_feed: float
+
+
 INITIAL_SOURCE_STATE: dict[str, Any] = {
     "feeds": 0,
     "total_feed_tonnes": 0.0,
     "last_raw_tonnes": 0.0,
 }
 
-# Lean initial ``crusher.state``. Transform updates only dynamic values each Arrival.
 INITIAL_CRUSHER_STATE: dict[str, Any] = {
     "stockpile": 0.0,
     "mode": "slow",
@@ -70,11 +59,40 @@ INITIAL_CRUSHER_STATE: dict[str, Any] = {
 }
 
 
-class OreFeedSource(SourceComponent):
-    """
-    ``entity_generator`` samples ore, updates source ``state``, and returns the emitted entity.
-    """
+def build_mode_resolver(high_threshold: float, low_threshold: float) -> ModeResolver:
+    resolver = ModeResolver()
 
+    low_stock_rule = ModeRule(
+        name="switch_to_slow_at_low_stock",
+        mode="slow",
+        priority=10,
+        constraints=[
+            Constraint(
+                name="stockpile_at_or_below_low",
+                check=lambda entity: entity.stockpile_after_feed <= low_threshold,
+            )
+        ],
+    )
+    high_stock_rule = ModeRule(
+        name="switch_to_fast_at_high_stock",
+        mode="fast",
+        priority=20,
+        constraints=[
+            Constraint(
+                name="stockpile_at_or_above_high",
+                check=lambda entity: entity.stockpile_after_feed >= high_threshold,
+            )
+        ],
+    )
+
+    resolver.add_rule(low_stock_rule)
+    resolver.add_rule(high_stock_rule)
+
+
+    return resolver
+
+
+class OreFeedSource(SourceComponent):
     def __init__(
         self,
         component_id: str,
@@ -103,10 +121,6 @@ class OreFeedSource(SourceComponent):
 
 
 def drs_crusher_simulation(visualize: bool = False) -> tuple[str, TransformerComponent]:
-    """
-    Run source → crusher → sink. Returns (stats text, crusher). Plot stockpile with
-    ``state_key_series_from_history(crusher, "stockpile")`` (see ``src.modules.stats``).
-    """
     engine = Engine(
         startup_events=[Event(0, "source", "Generate", None, {})],
         visualize=visualize,
@@ -121,6 +135,8 @@ def drs_crusher_simulation(visualize: bool = False) -> tuple[str, TransformerCom
     )
     source.state.update(INITIAL_SOURCE_STATE)
 
+    mode_resolver = build_mode_resolver(HIGH_STOCK, LOW_STOCK)
+
     def crush_transform(_engine: Engine, event: Event, comp: Component) -> dict[str, Any]:
         st = comp.state
         raw_in = float(event.entity.get("raw_tonnes", 0.0))
@@ -128,11 +144,11 @@ def drs_crusher_simulation(visualize: bool = False) -> tuple[str, TransformerCom
 
         stock_after_feed = stock_before + raw_in
 
-        mode = st["mode"]
-        if stock_after_feed >= HIGH_STOCK:
-            mode = "fast"
-        elif stock_after_feed <= LOW_STOCK:
-            mode = "slow"
+        mode_context = CrusherModeContext(stockpile_after_feed=stock_after_feed)
+        current_mode = str(st["mode"])
+        mode = mode_resolver.resolve(mode_context, default=current_mode)
+        if mode is None:
+            mode = current_mode
         st["mode"] = mode
 
         capacity = FAST_CRUSH.sample() if mode == "fast" else SLOW_CRUSH.sample()
@@ -171,7 +187,7 @@ if __name__ == "__main__":
     report, crusher = drs_crusher_simulation(visualize=False)
     print(report)
     series = state_key_series_from_history(crusher, "stockpile")
-    print("\n# stockpile vs time (t, stockpile) — sample for plotting")
+    print("\n# stockpile vs time (t, stockpile) - sample for plotting")
     for t, s in series[:25]:
         print(f"{t:.4f}\t{s:.4f}")
     if len(series) > 25:
@@ -180,7 +196,7 @@ if __name__ == "__main__":
         print(f"{t:.4f}\t{s:.4f}")
 
     if "--plot" in sys.argv:
-        out = _root / "output" / f"drs_crusher_stockpile_{uuid.uuid4()}.png"
+        out = _root / "output" / f"drs_crusher_stockpile_with_utils_{uuid.uuid4()}.png"
         plot_time_series(
             series,
             x_label="time",
