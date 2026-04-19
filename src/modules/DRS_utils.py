@@ -1,50 +1,61 @@
 from __future__ import annotations
 
-from dataclasses import dataclass, field, is_dataclass
+from dataclasses import dataclass, field
 from typing import Callable, Generic, TypeVar
 
-T = TypeVar("T")  # dataclass type
+from src.core.components import Component
+from src.core.engine import Engine
+from src.core.events import Event
+
 M = TypeVar("M")  # mode type
 
+ConstraintCheck = Callable[[Engine, Event, Component], bool]
+
 
 @dataclass(slots=True)
-class Constraint(Generic[T]):
+class Constraint:
     """
-    A named boolean check over a dataclass instance.
+    A named boolean check using the same triple as component handlers:
+    ``(engine, event, component)``.
     """
+
     name: str
-    check: Callable[[T], bool]
+    check: ConstraintCheck
 
-    def matches(self, obj: T) -> bool:
-        return self.check(obj)
+    def matches(self, engine: Engine, event: Event, component: Component) -> bool:
+        return self.check(engine, event, component)
 
 
 @dataclass(slots=True)
-class ModeRule(Generic[T, M]):
+class ModeRule(Generic[M]):
     """
     A rule that yields a mode if all its constraints pass.
     Higher priority rules are checked first.
     """
+
     name: str
     mode: M
     priority: int = 0
     enabled: bool = True
-    constraints: list[Constraint[T]] = field(default_factory=list)
+    constraints: list[Constraint] = field(default_factory=list)
 
-    def matches(self, obj: T) -> bool:
+    def matches(self, engine: Engine, event: Event, component: Component) -> bool:
         if not self.enabled:
             return False
-        return all(constraint.matches(obj) for constraint in self.constraints)
+        return all(
+            constraint.matches(engine, event, component) for constraint in self.constraints
+        )
 
 
-class ModeResolver(Generic[T, M]):
+class ModeResolver(Generic[M]):
     """
     Centralized rule store and mode evaluator.
     """
-    def __init__(self) -> None:
-        self._rules: list[ModeRule[T, M]] = []
 
-    def add_rule(self, rule: ModeRule[T, M]) -> None:
+    def __init__(self) -> None:
+        self._rules: list[ModeRule[M]] = []
+
+    def add_rule(self, rule: ModeRule[M]) -> None:
         if any(existing.name == rule.name for existing in self._rules):
             raise ValueError(f"Rule with name {rule.name!r} already exists")
         self._rules.append(rule)
@@ -56,7 +67,7 @@ class ModeResolver(Generic[T, M]):
         if len(self._rules) == original_len:
             raise KeyError(f"No rule named {name!r}")
 
-    def replace_rule(self, name: str, new_rule: ModeRule[T, M]) -> None:
+    def replace_rule(self, name: str, new_rule: ModeRule[M]) -> None:
         for i, rule in enumerate(self._rules):
             if rule.name == name:
                 if new_rule.name != name and any(r.name == new_rule.name for r in self._rules):
@@ -72,36 +83,40 @@ class ModeResolver(Generic[T, M]):
     def disable_rule(self, name: str) -> None:
         self._get_rule(name).enabled = False
 
-    def get_rule(self, name: str) -> ModeRule[T, M]:
+    def get_rule(self, name: str) -> ModeRule[M]:
         return self._get_rule(name)
 
-    def list_rules(self) -> list[ModeRule[T, M]]:
-        return list[ModeRule[T, M]](self._rules)
+    def list_rules(self) -> list[ModeRule[M]]:
+        return list(self._rules)
 
     def clear_rules(self) -> None:
         self._rules.clear()
 
-    def resolve(self, obj: T, default: M | None = None) -> M | None:
-        if not is_dataclass(obj):
-            raise TypeError("resolve() expects a dataclass instance")
-
+    def resolve(
+        self,
+        engine: Engine,
+        event: Event,
+        component: Component,
+        default: M | None = None,
+    ) -> M | None:
         for rule in self._rules:
-            if rule.matches(obj):
+            if rule.matches(engine, event, component):
                 return rule.mode
 
         return default
 
-    def explain(self, obj: T) -> list[tuple[str, bool]]:
+    def explain(
+        self, engine: Engine, event: Event, component: Component
+    ) -> list[tuple[str, bool]]:
         """
         Returns [(rule_name, matched), ...] in evaluation order.
         Useful for debugging.
         """
-        if not is_dataclass(obj):
-            raise TypeError("explain() expects a dataclass instance")
+        return [
+            (rule.name, rule.matches(engine, event, component)) for rule in self._rules
+        ]
 
-        return [(rule.name, rule.matches(obj)) for rule in self._rules]
-
-    def _get_rule(self, name: str) -> ModeRule[T, M]:
+    def _get_rule(self, name: str) -> ModeRule[M]:
         for rule in self._rules:
             if rule.name == name:
                 return rule
@@ -109,6 +124,3 @@ class ModeResolver(Generic[T, M]):
 
     def _sort_rules(self) -> None:
         self._rules.sort(key=lambda rule: rule.priority, reverse=True)
-
-
-    

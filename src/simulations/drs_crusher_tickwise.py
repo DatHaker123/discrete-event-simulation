@@ -30,7 +30,15 @@ for p in (_src, _root):
 import logging
 from typing import Any
 
-from src.core import Component, Engine, Event, SinkComponent, SourceComponent, TransformerComponent
+from src.core import (
+    Component,
+    Engine,
+    Entity,
+    Event,
+    SinkComponent,
+    SourceComponent,
+    TransformerComponent,
+)
 from src.modules import (
     get_records_as_printable_string,
     plot_time_series,
@@ -93,7 +101,7 @@ class OreFeedSource(SourceComponent):
 
     def _generate_entity(
         self, _engine: Engine, _event: Event, component: Component
-    ) -> dict[str, Any]:
+    ) -> Entity:
         st = component.state
         raw = self._raw_batch.sample()
         st["last_raw_tonnes"] = raw
@@ -121,7 +129,7 @@ def drs_crusher_simulation(visualize: bool = False) -> tuple[str, TransformerCom
     )
     source.state.update(INITIAL_SOURCE_STATE)
 
-    def crush_transform(_engine: Engine, event: Event, comp: Component) -> dict[str, Any]:
+    def crush_transform(_engine: Engine, event: Event, comp: Component) -> Entity:
         st = comp.state
         raw_in = float(event.entity.get("raw_tonnes", 0.0))
         stock_before = float(st["stockpile"])

@@ -10,13 +10,14 @@ from .components import (
     TransformerComponent,
 )
 from .engine import Engine, EventQueue
-from .events import Event, priority_for_event_type
+from .events import Entity, Event, priority_for_event_type
 
 __all__ = [
     "AssertComponent",
     "Component",
     "DelayComponent",
     "Engine",
+    "Entity",
     "Event",
     "EventQueue",
     "SingleIOComponent",

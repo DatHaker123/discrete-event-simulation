@@ -4,7 +4,7 @@ from abc import ABC, abstractmethod
 from typing import Any, Callable
 
 from .engine import Engine
-from .events import Event
+from .events import Entity, Event
 from ..modules.logger import get_logger
 from ..modules.utils import Distribution
 
@@ -15,14 +15,12 @@ EventHandler = Callable[[Engine, Event, "Component"], None]
 
 class Component(ABC):
     """
-    Component is the base class for all components.
-    It is responsible for handling events and connecting/disconnecting components.
+    Abstract base for every simulation component.
 
-    Each component has a ``state`` dict and optional ``state_history`` (timestamped snapshots).
-    When ``track_state`` is True, a shallow copy of ``state`` is appended to ``state_history``
-    after each successfully handled event. Handlers receive ``(engine, event, component)``
-    so simulation-level code can use ``component.state``, ``component.output``, etc. without
-    capturing the component in a closure.
+    Subclasses register handlers by event type and implement connection management.
+    Every component exposes mutable ``state`` and optional ``state_history`` snapshots.
+    When ``track_state`` is enabled, ``handle_event`` records a shallow copy of
+    ``state`` after each successful handler call.
     """
 
     def __init__(self, component_id: str, type: str, track_state: bool = False):
@@ -67,8 +65,10 @@ class Component(ABC):
 
 class SingleIOComponent(Component):
     """
-    SingleIOComponent is a component that has one input and one output.
-    It is responsible for connecting/disconnecting components and handling events.
+    Base class for linear-flow components with one logical upstream and downstream.
+
+    Provides single-output wiring helpers and a shared ``default_handle_departure``
+    that forwards ``event.entity`` to the connected output as an ``Arrival``.
     """
 
     def output_to(self, other: "Component") -> None:
@@ -118,7 +118,7 @@ class SourceComponent(SingleIOComponent):
     emitted by other logic) will drive output; schedule further Generate events
     yourself if needed.
 
-    entity_generator is called as ``(engine, event, component)`` and must return the entity to emit.
+    entity_generator is called as ``(engine, event, component)`` and must return an ``Entity`` to emit.
     The entity field on the Generate event is ignored. Use ``component.state`` / ``component.output`` as needed.
 
     Event flow:
@@ -129,7 +129,7 @@ class SourceComponent(SingleIOComponent):
     def __init__(
         self,
         component_id: str,
-        entity_generator: Callable[[Engine, Event, Component], Any],
+        entity_generator: Callable[[Engine, Event, Component], Entity],
         interval: Distribution | None = None,
         track_state: bool = False,
     ):
@@ -299,14 +299,17 @@ class AssertComponent(SingleIOComponent):
 
 class TransformerComponent(SingleIOComponent):
     """
-    TransformerComponent is a component that transforms events from one type to another.
-    It is responsible for transforming events from one type to another.
+    Maps each incoming entity to a new entity for downstream delivery.
+
+    ``transform_function`` receives ``(engine, event, component)`` and returns an
+    ``Entity`` (same notion as ``event.entity`` on ``Event``): unconstrained at
+    runtime; models often use a ``dict`` payload.
     """
 
     def __init__(
         self,
         component_id: str,
-        transform_function: Callable[[Engine, Event, Component], Any],
+        transform_function: Callable[[Engine, Event, Component], Entity],
         track_state: bool = False,
     ):
         super().__init__(component_id, "Transformer", track_state=track_state)

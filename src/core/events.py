@@ -1,7 +1,11 @@
 """Shared event type and priority. No dependency on engine or components."""
 
 from dataclasses import dataclass
-from typing import Any
+from typing import Any, TypeAlias
+
+# Payload carried on events (``Event.entity``). Often a ``dict`` in examples; alias avoids
+# conflating the *role* (entity) with a concrete container type in signatures.
+Entity: TypeAlias = Any
 
 
 @dataclass(slots=True)
@@ -9,7 +13,7 @@ class Event:
     time: float
     handler_id: str
     type: str
-    entity: Any
+    entity: Entity
     kwargs: dict
 
 

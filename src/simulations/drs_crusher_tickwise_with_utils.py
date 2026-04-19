@@ -5,7 +5,6 @@
 
 import sys
 import uuid
-from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
@@ -17,7 +16,15 @@ for p in (_src, _root):
 
 import logging
 
-from src.core import Component, Engine, Event, SinkComponent, SourceComponent, TransformerComponent
+from src.core import (
+    Component,
+    Engine,
+    Entity,
+    Event,
+    SinkComponent,
+    SourceComponent,
+    TransformerComponent,
+)
 from src.modules import (
     get_records_as_printable_string,
     plot_time_series,
@@ -39,11 +46,7 @@ LOW_STOCK = 9.0
 
 TIME_LIMIT = 220.0
 
-
-@dataclass(frozen=True)
-class CrusherModeContext:
-    stockpile_after_feed: float
-
+SWELL_FACTOR = 1.1
 
 INITIAL_SOURCE_STATE: dict[str, Any] = {
     "feeds": 0,
@@ -57,39 +60,6 @@ INITIAL_CRUSHER_STATE: dict[str, Any] = {
     "total_raw_in": 0.0,
     "total_crushed_out": 0.0,
 }
-
-
-def build_mode_resolver(high_threshold: float, low_threshold: float) -> ModeResolver:
-    resolver = ModeResolver()
-
-    low_stock_rule = ModeRule(
-        name="switch_to_slow_at_low_stock",
-        mode="slow",
-        priority=10,
-        constraints=[
-            Constraint(
-                name="stockpile_at_or_below_low",
-                check=lambda entity: entity.stockpile_after_feed <= low_threshold,
-            )
-        ],
-    )
-    high_stock_rule = ModeRule(
-        name="switch_to_fast_at_high_stock",
-        mode="fast",
-        priority=20,
-        constraints=[
-            Constraint(
-                name="stockpile_at_or_above_high",
-                check=lambda entity: entity.stockpile_after_feed >= high_threshold,
-            )
-        ],
-    )
-
-    resolver.add_rule(low_stock_rule)
-    resolver.add_rule(high_stock_rule)
-
-
-    return resolver
 
 
 class OreFeedSource(SourceComponent):
@@ -111,7 +81,7 @@ class OreFeedSource(SourceComponent):
 
     def _generate_entity(
         self, _engine: Engine, _event: Event, component: Component
-    ) -> dict[str, Any]:
+    ) -> Entity:
         st = component.state
         raw = self._raw_batch.sample()
         st["last_raw_tonnes"] = raw
@@ -135,24 +105,61 @@ def drs_crusher_simulation(visualize: bool = False) -> tuple[str, TransformerCom
     )
     source.state.update(INITIAL_SOURCE_STATE)
 
-    mode_resolver = build_mode_resolver(HIGH_STOCK, LOW_STOCK)
+    mode_resolver = ModeResolver()
+    mode_resolver.add_rule(
+        ModeRule(
+            name="switch_to_slow_at_low_stock",
+            mode="slow",
+            priority=10,
+            constraints=[
+                Constraint(
+                    name="stockpile_at_or_below_low",
+                    check=lambda _eng, ev, comp: float(comp.state["stockpile"])
+                    + (
+                        float(ev.entity.get("raw_tonnes", 0.0))
+                        if isinstance(ev.entity, dict)
+                        else 0.0
+                    )
+                    <= LOW_STOCK,
+                )
+            ],
+        )
+    )
+    mode_resolver.add_rule(
+        ModeRule(
+            name="switch_to_fast_at_high_stock",
+            mode="fast",
+            priority=20,
+            constraints=[
+                Constraint(
+                    name="stockpile_at_or_above_high",
+                    check=lambda _eng, ev, comp: float(comp.state["stockpile"])
+                    + (
+                        float(ev.entity.get("raw_tonnes", 0.0))
+                        if isinstance(ev.entity, dict)
+                        else 0.0
+                    )
+                    >= HIGH_STOCK,
+                )
+            ],
+        )
+    )
 
-    def crush_transform(_engine: Engine, event: Event, comp: Component) -> dict[str, Any]:
+    def crush_transform(_engine: Engine, event: Event, comp: Component) -> Entity:
         st = comp.state
         raw_in = float(event.entity.get("raw_tonnes", 0.0))
         stock_before = float(st["stockpile"])
 
         stock_after_feed = stock_before + raw_in
 
-        mode_context = CrusherModeContext(stockpile_after_feed=stock_after_feed)
         current_mode = str(st["mode"])
-        mode = mode_resolver.resolve(mode_context, default=current_mode)
+        mode = mode_resolver.resolve(_engine, event, comp, default=current_mode)
         if mode is None:
             mode = current_mode
         st["mode"] = mode
 
         capacity = FAST_CRUSH.sample() if mode == "fast" else SLOW_CRUSH.sample()
-        crushed = min(stock_after_feed, capacity)
+        crushed = min(stock_after_feed * SWELL_FACTOR, capacity)
 
         stock_after = stock_after_feed - crushed
         st["stockpile"] = stock_after
@@ -160,12 +167,13 @@ def drs_crusher_simulation(visualize: bool = False) -> tuple[str, TransformerCom
         st["total_raw_in"] = float(st["total_raw_in"]) + raw_in
         st["total_crushed_out"] = float(st["total_crushed_out"]) + crushed
 
-        return {
+        entity: Entity = {
             "crushed_tonnes": crushed,
             "stockpile_after": stock_after,
             "mode": mode,
             "raw_in": raw_in,
         }
+        return entity
 
     crusher = TransformerComponent("crusher", crush_transform, track_state=True)
     crusher.state.update(INITIAL_CRUSHER_STATE)

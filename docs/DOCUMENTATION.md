@@ -57,7 +57,7 @@ discrete-event-simulation/
   - **`time`**: Simulation time when the event is processed.  
   - **`handler_id`**: `component_id` of the component that handles it.  
   - **`type`**: String (`"Generate"`, `"Arrival"`, `"Departure"`, `"End"`, …) — selects the handler and, with `priority_for_event_type()`, orders same-time events.  
-  - **`entity`**: Payload carried with the event (often the “token” flowing through the network). May be ignored by some handlers (e.g. source ignores `entity` on `Generate` when using `entity_generator`).  
+  - **`entity`**: The event payload, typed as **`Entity`** in code (`src/core/events.py`: alias for “whatever you pass”; examples often use a **`dict`**). May be ignored by some handlers (e.g. source ignores `entity` on `Generate` when using `entity_generator`).  
   - **`kwargs`**: Extra dict for future use.
 
 - **`priority_for_event_type(event_type) -> int`**  
@@ -109,7 +109,7 @@ without capturing the block in a closure. Wrong wiring (e.g. calling a source-on
 
 #### `SourceComponent(component_id, entity_generator, interval=None, track_state=False)`
 
-- **`entity_generator(engine, event, component) -> entity`** — Called on each **`Generate`**; return value becomes the entity for the internal **`Departure`** → downstream **`Arrival`**. The **`entity`** field on the `Generate` event is not used by the default source logic.
+- **`entity_generator(engine, event, component) -> Entity`** — Called on each **`Generate`**; return value becomes the entity for the internal **`Departure`** → downstream **`Arrival`**. The **`entity`** field on the `Generate` event is not used by the default source logic.
 - **`interval`**: If set (`Distribution`), schedules the next **`Generate`** on self at `now + sample()`. If `None`, only startup / manually queued generates drive output.
 - Flow: **`Generate`** → **`Departure`** (self) → **`Arrival`** (output). Public **`default_handle_generate`**.
 
@@ -128,7 +128,7 @@ without capturing the block in a closure. Wrong wiring (e.g. calling a source-on
 
 #### `TransformerComponent(component_id, transform_function, track_state=False)`
 
-- **`transform_function(engine, event, component) -> new_entity`**. Schedules **`Departure`** with transformed entity. Public **`transformer_handle_arrival`**.
+- **`transform_function(engine, event, component) -> Entity`**. Schedules **`Departure`** with the returned entity (same **`Entity`** notion as **`Event.entity`**). Public **`transformer_handle_arrival`**.
 
 Default handlers are **public methods** so custom wrappers can delegate, e.g.  
 `component.default_handle_generate(engine, event, component)` on a **`SourceComponent`** (ensure the block type matches, or you get **`AttributeError`**).

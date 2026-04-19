@@ -15,6 +15,7 @@ from src.core import (
     Component,
     DelayComponent,
     Engine,
+    Entity,
     Event,
     SinkComponent,
     SourceComponent,
@@ -28,7 +29,7 @@ def simple_simulation():
     engine = Engine(startup_events=[Event(0, "source", "Generate", None, {})], visualize=False)
     engine.simulation_variables["token_count"] = 0
 
-    def token_generator(_engine: Engine, _event: Event, _comp: Component) -> dict:
+    def token_generator(_engine: Engine, _event: Event, _comp: Component) -> Entity:
         _engine.simulation_variables["token_count"] += 1
         return {"name": "token", "value": _engine.simulation_variables["token_count"]}
 
@@ -36,7 +37,7 @@ def simple_simulation():
 
     delay = DelayComponent("delay", UniformDistribution(0, 10), capacity=1000)
 
-    def transformation_function(engine: Engine, event: Event, comp: Component) -> dict:
+    def transformation_function(engine: Engine, event: Event, comp: Component) -> Entity:
         original = event.entity
         st = comp.state
         if original["value"] > 5:
