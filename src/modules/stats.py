@@ -1,5 +1,78 @@
+from __future__ import annotations
+
 import pprint
-from typing import Any, Iterable
+from pathlib import Path
+from typing import Any, Iterable, Sequence
+
+
+def state_key_series_from_history(component: Any, key: str) -> list[tuple[float, float]]:
+    """
+    Build ``(time, value)`` from a component's ``state_history``, keeping one point per time
+    (last snapshot at each time wins). Only snapshots that contain ``key`` are used.
+    """
+    history = getattr(component, "state_history", None)
+    if not history:
+        return []
+    by_t: dict[float, float] = {}
+    for t, snap in history:
+        if isinstance(snap, dict) and key in snap:
+            by_t[float(t)] = float(snap[key])
+    return sorted(by_t.items())
+
+
+def state_history_snapshots(component: Any) -> list[tuple[float, dict[str, Any]]]:
+    """Return a copy of ``(time, state_dict)`` rows from ``component.state_history``."""
+    history = getattr(component, "state_history", None)
+    if not history:
+        return []
+    return list(history)
+
+
+def plot_time_series(
+    series: list[tuple[float, float]],
+    *,
+    x_label: str = "time",
+    y_label: str = "value",
+    title: str = "",
+    line_label: str | None = "series",
+    horizontal_lines: Sequence[tuple[float, str]] | None = None,
+    save_path: Path | str | None = None,
+    show: bool = True,
+    figsize: tuple[float, float] = (8, 3),
+    dpi: int = 120,
+) -> None:
+    """
+    Plot a single ``(x, y)`` series (e.g. time vs a state variable). Optional dashed horizontal
+    reference lines ``(y, label)`` each get a default color from the matplotlib cycle.
+    """
+    import matplotlib.pyplot as plt
+
+    if not series:
+        return
+    xs, ys = zip(*series)
+    fig, ax = plt.subplots(figsize=figsize)
+    ax.plot(xs, ys, color="C0", lw=1.2, label=line_label if line_label else None)
+    if horizontal_lines:
+        h_colors = ("C3", "C2", "C4", "C5", "C1")
+        for i, (y, hlabel) in enumerate(horizontal_lines):
+            ax.axhline(
+                y, color=h_colors[i % len(h_colors)], ls="--", lw=0.9, alpha=0.85, label=hlabel
+            )
+    ax.set_xlabel(x_label)
+    ax.set_ylabel(y_label)
+    if title:
+        ax.set_title(title)
+    if line_label or horizontal_lines:
+        ax.legend(loc="upper right", fontsize=8)
+    fig.tight_layout()
+    if save_path is not None:
+        p = Path(save_path)
+        p.parent.mkdir(parents=True, exist_ok=True)
+        fig.savefig(p, dpi=dpi)
+    if show:
+        plt.show()
+    else:
+        plt.close(fig)
 
 
 def _format_sink_entity_one_line(entity: Any, max_len: int = 76) -> str:

@@ -1,7 +1,12 @@
 """Supporting modules: logging, statistics, distributions, visualization."""
 
 from .logger import get_logger, log_event, setup_logging
-from .stats import get_records_as_printable_string
+from .stats import (
+    get_records_as_printable_string,
+    plot_time_series,
+    state_history_snapshots,
+    state_key_series_from_history,
+)
 from .utils import (
     ConstantDistribution,
     Distribution,
@@ -20,6 +25,9 @@ __all__ = [
     "Visualizer",
     "get_logger",
     "get_records_as_printable_string",
+    "plot_time_series",
+    "state_history_snapshots",
+    "state_key_series_from_history",
     "log_event",
     "setup_logging",
 ]

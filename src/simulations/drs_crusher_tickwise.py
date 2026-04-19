@@ -16,9 +16,10 @@
 #   so consecutive duplicate timestamps in raw ``state_history`` are normal.)
 #
 # Tune: SOURCE_INTERVAL, RAW_BATCH, SLOW_CRUSH, FAST_CRUSH, HIGH_STOCK, LOW_STOCK, TIME_LIMIT
-# Run as script: ``python -m src.simulations.drs_crusher --plot`` for stockpile figure (saved under output/).
+# Run as script: ``python -m src.simulations.drs_crusher --plot`` for stockpile figure (UUID-named PNG under output/).
 
 import sys
+import uuid
 from pathlib import Path
 
 _root = Path(__file__).resolve().parent.parent.parent
@@ -31,7 +32,12 @@ import logging
 from typing import Any
 
 from src.core import Component, Engine, Event, SinkComponent, SourceComponent, TransformerComponent
-from src.modules import get_records_as_printable_string, setup_logging
+from src.modules import (
+    get_records_as_printable_string,
+    plot_time_series,
+    setup_logging,
+    state_key_series_from_history,
+)
 from src.modules.utils import ConstantDistribution, Distribution, UniformDistribution
 
 
@@ -119,8 +125,8 @@ class OreFeedSource(SourceComponent):
 
 def drs_crusher_simulation(visualize: bool = False) -> tuple[str, TransformerComponent]:
     """
-    Run source → crusher → sink. Returns (stats text, crusher) so callers can plot
-    ``stockpile_series_from_crusher(crusher)``.
+    Run source → crusher → sink. Returns (stats text, crusher). Plot stockpile with
+    ``state_key_series_from_history(crusher, "stockpile")`` (see ``src.modules.stats``).
     """
     engine = Engine(
         startup_events=[Event(0, "source", "Generate", None, {})],
@@ -188,55 +194,11 @@ def drs_crusher_simulation(visualize: bool = False) -> tuple[str, TransformerCom
     return get_records_as_printable_string(engine.get_results()), crusher
 
 
-def stockpile_series_from_crusher(crusher: TransformerComponent) -> list[tuple[float, float]]:
-    """(time, stockpile) from crusher ``state_history`` (one point per time; Departure repeats same t)."""
-    by_t: dict[float, float] = {}
-    for t, snap in crusher.state_history:
-        if "stockpile" in snap:
-            by_t[float(t)] = float(snap["stockpile"])
-    return sorted(by_t.items())
-
-
-def crusher_snapshots(crusher: TransformerComponent) -> list[tuple[float, dict[str, Any]]]:
-    """Full ``(time, state_dict)`` rows from ``state_history`` (same keys as ``crusher.state``)."""
-    return list(crusher.state_history)
-
-
-def plot_stockpile_series(
-    series: list[tuple[float, float]],
-    *,
-    save_path: Path | None = None,
-    show: bool = True,
-) -> None:
-    """Plot ``(time, stockpile)`` from ``stockpile_series_from_crusher`` with hysteresis lines."""
-    import matplotlib.pyplot as plt
-
-    if not series:
-        return
-    t, y = zip(*series)
-    fig, ax = plt.subplots(figsize=(8, 3))
-    ax.plot(t, y, color="C0", lw=1.2, label="stockpile")
-    ax.axhline(HIGH_STOCK, color="C3", ls="--", lw=0.9, alpha=0.85, label="high / low")
-    ax.axhline(LOW_STOCK, color="C2", ls="--", lw=0.9, alpha=0.85)
-    ax.set_xlabel("time")
-    ax.set_ylabel("stockpile (tonnes)")
-    ax.set_title("Crusher stockpile vs time")
-    ax.legend(loc="upper right", fontsize=8)
-    fig.tight_layout()
-    if save_path is not None:
-        save_path.parent.mkdir(parents=True, exist_ok=True)
-        fig.savefig(save_path, dpi=120)
-    if show:
-        plt.show()
-    else:
-        plt.close(fig)
-
-
 if __name__ == "__main__":
     setup_logging(level=logging.INFO, log_file="sim.log", output_dir="output")
     report, crusher = drs_crusher_simulation(visualize=False)
     print(report)
-    series = stockpile_series_from_crusher(crusher)
+    series = state_key_series_from_history(crusher, "stockpile")
     print("\n# stockpile vs time (t, stockpile) — sample for plotting")
     for t, s in series[:25]:
         print(f"{t:.4f}\t{s:.4f}")
@@ -246,6 +208,15 @@ if __name__ == "__main__":
         print(f"{t:.4f}\t{s:.4f}")
 
     if "--plot" in sys.argv:
-        out = _root / "output" / "drs_crusher_stockpile.png"
-        plot_stockpile_series(series, save_path=out, show=True)
+        out = _root / "output" / f"drs_crusher_stockpile_{uuid.uuid4()}.png"
+        plot_time_series(
+            series,
+            x_label="time",
+            y_label="stockpile (tonnes)",
+            title="Crusher stockpile vs time",
+            line_label="stockpile",
+            horizontal_lines=((HIGH_STOCK, "high"), (LOW_STOCK, "low")),
+            save_path=out,
+            show=True,
+        )
         print(f"\nSaved figure to {out}")

@@ -182,6 +182,9 @@ print(get_records_as_printable_string(engine.get_results()))
 ## Statistics (`src/modules/stats.py`)
 
 - **`get_records_as_printable_string(components)`** — Intended for **`engine.get_results()`**.
+- **`state_key_series_from_history(component, key)`** — Builds **`(time, value)`** from **`state_history`**, one point per time (last snapshot wins when times repeat).
+- **`state_history_snapshots(component)`** — Returns **`list[(time, state_dict)]`** from **`state_history`**.
+- **`plot_time_series(series, ...)`** — Plots a **`(x, y)`** series; optional dashed **`horizontal_lines`** as **`(y, label)`** tuples.
 
   1. **Sink records** — For each component with a **`records`** attribute: a titled block, table columns **`idx`**, **`arrival t`**, **`dt`** (inter-arrival), **`entity`** (compact representation; dicts via `pprint`).
   2. **Recorded component states** — For each component with non-empty **`state_history`**: timestamped shallow snapshots of **`state`** (when **`track_state`** was `True` during the run).
@@ -219,7 +222,7 @@ Additional example:
 uv run python src/simulations/simple2.py
 ```
 
-Two-mode stockpile / crusher example (tunable constants at top of file; returns report plus crusher for **`stockpile_series_from_crusher`**):
+Two-mode stockpile / crusher example (tunable constants at top of file; returns report plus crusher; use **`state_key_series_from_history(crusher, "stockpile")`** from **`src.modules.stats`** to plot):
 
 ```bash
 uv run python src/simulations/drs_crusher.py
