@@ -57,7 +57,7 @@ discrete-event-simulation/
   - **`time`**: Simulation time when the event is processed.  
   - **`handler_id`**: `component_id` of the component that handles it.  
   - **`type`**: String (`"Generate"`, `"Arrival"`, `"Departure"`, `"End"`, …) — selects the handler and, with `priority_for_event_type()`, orders same-time events.  
-  - **`entity`**: The event payload, typed as **`Entity`** in code (`src/core/events.py`: alias for “whatever you pass”; examples often use a **`dict`**). May be ignored by some handlers (e.g. source ignores `entity` on `Generate` when using `entity_generator`).  
+  - **`entity`**: The event payload, typed as **`Entity`** (`dict[str, Any]` in `src/core/events.py`). Use **`{}`** when no fields are needed (e.g. startup **`Generate`**). May be ignored by some handlers (e.g. source ignores `entity` on `Generate` when using `entity_generator`).  
   - **`kwargs`**: Extra dict for future use.
 
 - **`priority_for_event_type(event_type) -> int`**  
@@ -150,8 +150,8 @@ from src.core import DelayComponent, Engine, Event, SinkComponent, SourceCompone
 from src.modules import get_records_as_printable_string
 from src.modules.utils import UniformDistribution
 
-engine = Engine(startup_events=[Event(0, "source", "Generate", None, {})], visualize=True)
-source = SourceComponent("source", lambda _e, _evt, _comp: "token", UniformDistribution(0, 10))
+engine = Engine(startup_events=[Event(0, "source", "Generate", {}, {})], visualize=True)
+source = SourceComponent("source", lambda _e, _evt, _comp: {"value": "token"}, UniformDistribution(0, 10))
 delay = DelayComponent("delay", UniformDistribution(0, 10), capacity=1000)
 sink = SinkComponent("sink")
 source.output_to(delay)

@@ -156,7 +156,7 @@ class SourceComponent(SingleIOComponent):
 
         if self.interval is not None:
             next_time = current_time + self.interval.sample()
-            next_generate_event = Event(next_time, self.component_id, "Generate", None, {})
+            next_generate_event = Event(next_time, self.component_id, "Generate", {}, {})
             engine.add_event(next_generate_event)
 
         departure_event = Event(current_time, self.component_id, "Departure", entity, {})
@@ -302,8 +302,7 @@ class TransformerComponent(SingleIOComponent):
     Maps each incoming entity to a new entity for downstream delivery.
 
     ``transform_function`` receives ``(engine, event, component)`` and returns an
-    ``Entity`` (same notion as ``event.entity`` on ``Event``): unconstrained at
-    runtime; models often use a ``dict`` payload.
+    ``Entity`` (same as ``event.entity`` on ``Event``): a ``dict[str, Any]`` payload.
     """
 
     def __init__(

@@ -3,9 +3,8 @@
 from dataclasses import dataclass
 from typing import Any, TypeAlias
 
-# Payload carried on events (``Event.entity``). Often a ``dict`` in examples; alias avoids
-# conflating the *role* (entity) with a concrete container type in signatures.
-Entity: TypeAlias = Any
+# Payload carried on events (``Event.entity``): string-keyed mapping (values are model-defined).
+Entity: TypeAlias = dict[str, Any]
 
 
 @dataclass(slots=True)

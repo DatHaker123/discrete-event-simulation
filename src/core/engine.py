@@ -82,7 +82,7 @@ class Engine:
 
     def run(self, on_step: Callable[[float, Event | None, list], None] | None = None):
         if self.time_limit is not None:
-            self.add_event(Event(self.time_limit, "End", "End", (), {}))
+            self.add_event(Event(self.time_limit, "End", "End", {}, {}))
 
         for event in self.startup_events:
             self.add_event(event)
