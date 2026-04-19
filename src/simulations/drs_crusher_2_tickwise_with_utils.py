@@ -31,7 +31,7 @@ from src.modules import (
     setup_logging,
     state_key_series_from_history,
 )
-from src.modules.DRS_utils import Constraint, ModeResolver, ModeRule
+from src.modules.DRS_utils import OperationModeConstraint, OperationModeResolver, OperationModeRule, OperationMode
 from src.modules.utils import ConstantDistribution, Distribution, UniformDistribution
 
 
@@ -43,6 +43,11 @@ RAW_BATCH = UniformDistribution(2.4, 3.2)
 # --- Tuning: crusher throughput (tonnes per processing step, mode-dependent) ---
 SLOW_CRUSH = UniformDistribution(0.9, 1.6)
 FAST_CRUSH = UniformDistribution(4.2, 6.5)
+
+
+# Modes embed tuning in ``data``; rules return these objects—handlers index keys they define.
+MODE_SLOW = OperationMode("slow", {"crush_speed": SLOW_CRUSH})
+MODE_FAST = OperationMode("fast", {"crush_speed": FAST_CRUSH})
 
 # --- Tuning: stockpile hysteresis (mode switches when projected level crosses these) ---
 HIGH_STOCK = 20.0
@@ -63,7 +68,7 @@ INITIAL_SOURCE_STATE: dict[str, Any] = {
 
 INITIAL_CRUSHER_STATE: dict[str, Any] = {
     "stockpile": 0.0,
-    "mode": "slow",
+    "mode_name": MODE_SLOW.name,
     "total_raw_in": 0.0,
     "total_crushed_out": 0.0,
 }
@@ -124,31 +129,32 @@ def drs_crusher_simulation(visualize: bool = False) -> tuple[str, TransformerCom
     # --- Mode rules (DRS_utils) ---
     # Rules see the same (engine, event, component) triple as handlers. Stock *after* this
     # feed is stockpile + incoming raw_tonnes (matches crush_transform before state write).
-    # Higher priority runs first: fast when high, else slow when low; otherwise resolve() keeps default (current mode).
-    mode_resolver = ModeResolver()
+    # Each rule's ``mode`` is an ``OperationalMode`` (name + string-keyed ``data``).
+    # Higher priority first: fast when high, else slow when low; else resolve() uses current mode_name.
+    mode_resolver: OperationModeResolver[OperationMode] = OperationModeResolver()
 
-    stockpile_low = Constraint(
+    stockpile_low = OperationModeConstraint(
         name="stockpile_at_or_below_low",
         check=lambda _eng, ev, comp: float(comp.state["stockpile"])
         + float(ev.entity.get("raw_tonnes", 0.0))
         <= LOW_STOCK,
     )
-    stockpile_high = Constraint(
+    stockpile_high = OperationModeConstraint(
         name="stockpile_at_or_above_high",
         check=lambda _eng, ev, comp: float(comp.state["stockpile"])
         + float(ev.entity.get("raw_tonnes", 0.0))
         >= HIGH_STOCK,
     )
 
-    slow_mode_rule = ModeRule(
+    slow_mode_rule = OperationModeRule(
         name="switch_to_slow_at_low_stock",
-        mode="slow",
+        mode=MODE_SLOW,
         priority=10,
         constraints=[stockpile_low],
     )
-    fast_mode_rule = ModeRule(
+    fast_mode_rule = OperationModeRule(
         name="switch_to_fast_at_high_stock",
-        mode="fast",
+        mode=MODE_FAST,
         priority=20,
         constraints=[stockpile_high],
     )
@@ -165,13 +171,14 @@ def drs_crusher_simulation(visualize: bool = False) -> tuple[str, TransformerCom
 
         stock_after_feed = stock_before + raw_in
 
-        current_mode = str(st["mode"])
-        mode = mode_resolver.resolve(_engine, event, comp, default=current_mode)
-        if mode is None:
-            mode = current_mode
-        st["mode"] = mode
+        current_name = str(st["mode_name"])
+        default_mode = MODE_FAST if current_name == MODE_FAST.name else MODE_SLOW
+        selected_mode = mode_resolver.resolve(_engine, event, comp, default=default_mode)
+        if selected_mode is None:
+            selected_mode = default_mode
+        st["mode_name"] = selected_mode.name
 
-        capacity = FAST_CRUSH.sample() if mode == "fast" else SLOW_CRUSH.sample()
+        capacity = selected_mode.data["crush_speed"].sample()
         crushed = min(stock_after_feed * SWELL_FACTOR, capacity)
 
         stock_after = stock_after_feed - crushed
@@ -183,7 +190,7 @@ def drs_crusher_simulation(visualize: bool = False) -> tuple[str, TransformerCom
         entity: Entity = {
             "crushed_tonnes": crushed,
             "stockpile_after": stock_after,
-            "mode": mode,
+            "mode": selected_mode.name,
             "raw_in": raw_in,
         }
         return entity

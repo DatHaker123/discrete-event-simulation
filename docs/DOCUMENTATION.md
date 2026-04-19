@@ -1,13 +1,33 @@
-# Discrete-Event Simulation — Documentation
+# Discrete simulation — Documentation
 
-A Python framework for discrete-event simulation (DES): events are processed in time order by components that schedule new events and connect to other components.
+This project is a **discrete simulation** framework in two layers:
+
+1. **Core = discrete-event simulation (DES)** — The runtime is built around a **future-event list**: simulation time jumps from event to event; components **schedule** and **handle** typed events. There is no fixed time step; state changes only when an event is processed. That is the **base program**: engine, queue, `Event`, handlers `(engine, event, component)`, wiring, sinks, delays, transformers, and sources that emit entities on a schedule you define in event logic.
+
+2. **Discrete-rate simulation (DRS) features on top** — When a model **pre-schedules many future instants** (e.g. a source that always queues the next `Generate` at each tick), the queue can hold work that later becomes invalid (threshold crossings, regime changes). **Event versions**, **`current_version`**, and **`advance_version()`** are **additions** for that situation: they let you **invalidate whole epochs** of already-queued events without canceling them individually. Optional helpers in `src/modules/DRS_utils.py` (mode rules) support DRS-style modelling but are not required for plain DES.
+
+**What this entails in practice**
+
+- **DES-only models** use the engine and components as usual; **`advance_version()`** is optional and often unused. You express the future entirely by **scheduling only events you still want** from each handler.
+- **DRS-oriented models** combine the same DES machinery with **recurring scheduling** (e.g. tickwise `Generate`) and, when physics or policy changes, call **`engine.advance_version()`** so stale queued events are **skipped** in `run()`. The **`version`** field on each `Event` records the epoch at enqueue time; the engine stamps it in **`add_event`**.
+
+See *Discrete simulation styles* below for a concise comparison.
 
 ---
 
 ## Overview
 
 - **Engine** (`src/core/engine.py`): Simulation time, priority event queue, registered components, optional `simulation_variables` dict, and `run()` dispatch. When `time_limit` is set, an internal `"End"` event stops the run (entity payload is `{}`).
-- **Events** (`src/core/events.py`): Dated messages with a type, target `handler_id`, and **`entity`** payload. **`Entity`** is a type alias for **`dict[str, Any]`** — use string keys for your model fields; use **`{}`** when an event carries no data (e.g. placeholder `Generate`, internal `End`). Tie-breaking uses `priority_for_event_type()` when two events share the same time.
+- **Events** (`src/core/events.py`): Dated messages with a type, target `handler_id`, **`entity`** payload, and **`version`** (epoch stamp). **`Entity`** is a type alias for **`dict[str, Any]`**. Tie-breaking uses `priority_for_event_type()` when two events share the same time.
+- **Epoch / staleness** (see *Discrete simulation styles*): The engine owns **`current_version`** and **`advance_version()`**. **`add_event`** sets **`event.version`** to the current epoch. Events popped with **`event.version < current_version`** are skipped (not dispatched). The internal **`"End"`** event is recognized before the stale check and still stops **`run()`**.
+
+### Discrete simulation styles
+
+- **Discrete-event simulation (DES)** — The **base** semantics of this codebase. State changes only when an event occurs. A model can be **fully event-driven**: every future change is scheduled by the logic that runs on the current event, so the queue need not hold a long horizon of “tentative” instants. In that setting, **`advance_version()`** is often unnecessary: you simply schedule the events you still want and never enqueue superseded work.
+- **Discrete-rate simulation (DRS)** — **Additional** concern: many future sampling or processing instants are **pre-scheduled** ahead of time (e.g. a source that queues the next **`Generate`** at each tick). When a **threshold crossing** or other structural change invalidates some of those future instants, **`advance_version()`** marks earlier epochs stale so the engine **skips** queued events that no longer apply, without having to dequeue them one-by-one by hand.
+
+**Event versions** are aimed at DRS-style queues: they invalidate **already-queued** work when the “rate” or schedule implied by past scheduling is no longer valid. They are **not** required for a purely DES formulation where the queue only ever contains events you still intend to process.
+
 - **Components** (`src/core/components.py`): Register handlers per event type. Each handler receives **`(engine, event, component)`** so you can use `component.state`, `component.output`, etc. without capturing the component in a closure.
 - **Output**: Logs under `output/` (and optionally console). With `visualize=True`, each run can write a UUID-named PDF (graph + queue per step). Sinks keep `records`; **`get_records_as_printable_string`** (`src/modules/stats.py`) formats sink tables and optional **state history**.
 
@@ -36,16 +56,16 @@ discrete-event-simulation/
 │   ├── sim.log
 │   └── <uuid>.pdf
 └── src/
-    ├── core/               # Engine, events, components
+    ├── core/               # DES core: engine, events, components
     │   ├── __init__.py     # Re-exports public API
-    │   ├── engine.py
+    │   ├── engine.py       # + version epoch (DRS layer)
     │   ├── events.py       # Event, Entity, priority_for_event_type
     │   └── components.py
     ├── modules/            # Logging, stats, distributions, visualization, DRS helpers
     │   ├── logger.py
     │   ├── stats.py
     │   ├── utils.py
-    │   ├── DRS_utils.py    # ModeResolver, ModeRule, Constraint (optional modelling)
+    │   ├── DRS_utils.py    # ModeResolver, ModeRule, Constraint (optional DRS modelling)
     │   └── visualization.py
     └── simulations/
         ├── simple.py                 # source → delay → sink
@@ -61,12 +81,13 @@ discrete-event-simulation/
 ### Entity and `Event` (`src/core/events.py`)
 
 - **`Entity`**: `TypeAlias = dict[str, Any]`. All event payloads are **dicts**; values are model-defined (numbers, strings, nested structures, etc.).
-- **`Event(time, handler_id, type, entity, kwargs)`** (dataclass, `slots=True`)
+- **`Event(time, handler_id, type, entity, kwargs, version=0)`** (dataclass, `slots=True`)
   - **`time`**: Simulation time when the event is processed.
   - **`handler_id`**: `component_id` of the component that handles it.
   - **`type`**: String (`"Generate"`, `"Arrival"`, `"Departure"`, `"End"`, …) — selects the handler and, with `priority_for_event_type()`, orders same-time events.
   - **`entity`**: **`Entity`**. Use **`{}`** when no fields are needed (e.g. startup **`Generate`** before the source fills it; internal **`End`** event). The **`Generate`** event’s **`entity`** is ignored by **`SourceComponent.default_handle_generate`** when an **`entity_generator`** is supplied — the generated dict becomes the **`Departure`** payload.
   - **`kwargs`**: Reserved for future use (plain `dict` in the dataclass).
+  - **`version`**: Epoch stamp; **`Engine.add_event`** overwrites this with **`engine.current_version`** when the event enters the queue. Stale detection after **`advance_version()`** is a **DRS-layer** feature; DES-only models often leave the epoch at **`0`** (see the introduction above).
 
 - **`priority_for_event_type(event_type) -> int`**  
   Lower value = higher priority when times are equal (default order: `Generate`, then `Arrival`, then `Departure`; other types get a default priority).
@@ -81,9 +102,13 @@ discrete-event-simulation/
 
 - **`add_component` / `remove_component`** — Register components by **`component_id`** (must match **`handler_id`** on events).
 
-- **`add_event(event)`** — Push onto the priority queue.
+- **`add_event(event)`** — Sets **`event.version = current_version`**, then pushes onto the priority queue.
 
-- **`run(on_step=None)`** — Drains the queue; dispatches **`component.handle_event(self, event)`** for each non-**`End`** event. Optional **`on_step(sim_time, event, queue_snapshot)`** after each step (and once for initial state when visualization or **`on_step`** is used).
+- **`current_version`** (read-only property) — Integer epoch; starts at **`0`**. Part of the **DRS** invalidation layer on top of DES.
+
+- **`advance_version() -> int`** — Increments **`current_version`** and returns the new value. Any events still in the queue (or popped later) whose **`version`** is less than **`current_version`** are **not** dispatched; they are logged and skipped in **`run()`**. Use when a **discrete-rate**-style schedule has queued work that a threshold or regime change invalidates; **DES-only** models often omit this.
+
+- **`run(on_step=None)`** — Drains the queue. For each event (except **`"End"`**, which stops the loop): if **`event.version < current_version`**, skip without calling handlers or **`on_step`**. Otherwise dispatches **`component.handle_event(self, event)`** for non-**`End`** events that pass the time-limit filter. Optional **`on_step(sim_time, event, queue_snapshot)`** after each **dispatched** step (and once for initial state when visualization or **`on_step`** is used).
 
 - **`get_current_time()`** — Current simulation time after the last processed event.
 
@@ -143,10 +168,11 @@ Default handlers are **public methods** (e.g. **`SourceComponent.default_handle_
 
 ## Mode rules (`src/modules/DRS_utils.py`)
 
-Optional helpers for **if/then mode** logic (e.g. crusher fast vs slow) without ad-hoc nesting:
+Optional helpers for **if/then mode** logic (e.g. crusher fast vs slow) without ad-hoc nesting — **DRS-oriented** modelling sugar, not required for DES:
 
 - **`Constraint`**: **`name`**, **`check: Callable[[Engine, Event, Component], bool]`** — same triple as event handlers.
-- **`ModeRule`**: **`name`**, **`mode`**, **`priority`** (higher runs first in **`resolve`**), optional **`constraints`** list, **`enabled`** flag.
+- **`OperationalMode`**: **`name`** (string id) and **`data`** (`dict[str, Any]`; keys and value types are model-defined and not validated here). Use as **`ModeRule.mode`** so **`resolve()`** returns the full mode; handlers index **`data`** by convention (e.g. **`data["crush_speed"].sample()`**).
+- **`ModeRule`**: **`name`**, **`mode`** (often an **`OperationalMode`**), **`priority`** (higher runs first in **`resolve`**), optional **`constraints`** list, **`enabled`** flag.
 - **`ModeResolver`**: **`add_rule`**, **`remove_rule`**, **`replace_rule`**, **`enable_rule`**, **`disable_rule`**, **`get_rule`**, **`list_rules`**, **`clear_rules`**, **`resolve(engine, event, component, default=None)`**, **`explain(engine, event, component)`** (per-rule match diagnostics).
 
 **`resolve`** walks rules in priority order and returns the first **`mode`** whose constraints all pass; if none match, returns **`default`**.
@@ -228,6 +254,7 @@ With **`visualize=True`** (the engine default), **`run()`** builds a **`Visualiz
 ## Extending
 
 - **Custom components**: Subclass **`Component`** or **`SingleIOComponent`**, implement **`output_to` / `disconnect_output_to`**, register handlers with **`set_handleable_event`**, schedule events with **`engine.add_event(...)`**. Use **`Entity`** (**`dict[str, Any]`**) for payloads.
+- **Epochs / `advance_version`**: **DRS-layer** tool when a discrete-rate-style model has obsolete future events in the queue; **DES-only** models can usually rely on explicit scheduling alone (see the introduction).
 - **Replace or wrap a default handler**: After construction, **`set_handleable_event("Arrival", my_handler)`**. Inside **`my_handler`**, call the original public method on the **instance**, e.g. **`sink.sink_handle_arrival(engine, event, sink)`** for a **`SinkComponent`** named **`sink`**, so pre/post logic composes without rebinding the same name to your wrapper.
 - **Custom distributions**: Subclass **`Distribution`** in **`src/modules/utils.py`** and implement **`sample() -> float`**.
 - **Event priority**: Adjust **`priority_for_event_type`** in **`src/core/events.py`**.

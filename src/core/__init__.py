@@ -1,4 +1,4 @@
-"""Core DES runtime: events, engine, components."""
+"""Core discrete simulation runtime: events, engine, components."""
 
 from .components import (
     AssertComponent,

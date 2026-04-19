@@ -1,5 +1,5 @@
 """
-Logging module for the discrete-event simulation.
+Logging module for discrete simulation (discrete-event and discrete-rate style models).
 
 To include simulation time in a log line, pass it explicitly via extra:
 
