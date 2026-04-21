@@ -63,27 +63,13 @@ class Engine:
         self.output_dir = output_dir
         #: User-defined simulation state (counters, parameters, etc.); populate in your model setup.
         self.simulation_variables: dict[str, Any] = {}
-        #: Monotonic epoch for invalidating **already-queued** events (discrete-rate / tick-style).
-        #: Increased by ``advance_version``; events with ``event.version < current_version`` are skipped
-        #: when popped (except ``type == "End"``). Purely discrete-event models often never bump this.
-        self._current_version: int = 0
-
-    @property
-    def current_version(self) -> int:
-        return self._current_version
-
-    def advance_version(self) -> int:
-        """
-        Bump the simulation epoch. Use when a discrete-rate (or similar) schedule has queued future
-        instants that a threshold or regime change invalidates. Events already in the queue with an
-        older ``version`` become stale and are not dispatched; new events from ``add_event`` get the
-        new epoch. Purely discrete-event models are usually fully event-driven and rarely need this.
-        """
-        self._current_version += 1
-        return self._current_version
 
     def add_event(self, event: Event):
-        event.version = self._current_version
+        target = self._components.get(event.handler_id)
+        if target is not None:
+            event.version = target.version
+        else:
+            event.version = 0
         self.log.info(
             "Adding event",
             extra={
@@ -136,7 +122,8 @@ class Engine:
             event = self.pop_event()
             if event.type == "End":
                 break
-            if event.version < self._current_version:
+            component = self._components[event.handler_id]
+            if event.version < component.version:
                 self.log.info(
                     "Skipping stale event",
                     extra={
@@ -144,13 +131,12 @@ class Engine:
                         "event_type": event.type,
                         "event_handler_id": event.handler_id,
                         "event_version": event.version,
-                        "current_version": self._current_version,
+                        "component_version": component.version,
                     },
                 )
                 continue
             if self.time_limit is not None and event.time >= self.time_limit:
                 continue
-            component = self._components[event.handler_id]
             self._current_time = event.time
             if step_cb is not None:
                 step_cb(self._current_time, event, self.get_queue_snapshot())

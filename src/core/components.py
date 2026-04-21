@@ -22,11 +22,10 @@ class Component(ABC):
     When ``track_state`` is enabled, ``handle_event`` records a shallow copy of
     ``state`` after each successful handler call.
 
-    Handlers may call ``engine.advance_version()`` to invalidate already-queued events in
-    discrete-rate / tick-style models (e.g. after a threshold crossing that voids future
-    pre-scheduled ticks). Events accepted by ``engine.add_event`` are stamped with
-    ``engine.current_version``; stale events are skipped in ``Engine.run``. Purely
-    discrete-event formulations often schedule only intended future work and do not need epochs.
+    Each component has a monotonic ``version`` used with ``Event.version``: ``add_event``
+    stamps incoming events with the **target** component's version at enqueue time; if you call
+    ``advance_version()`` on that component, already-queued events for it become stale and
+    ``Engine.run`` skips them. Purely discrete-event models often never bump the version.
     """
 
     def __init__(self, component_id: str, type: str, track_state: bool = False):
@@ -39,6 +38,18 @@ class Component(ABC):
         self.state_history: list[tuple[float, ComponentState]] = []
         self.log = get_logger(f"{type}_{component_id}")
         self.handleable_events = {}
+        #: Epoch for this block only; ``Engine.add_event`` copies it onto each event targeting this
+        #: component. Bump with ``advance_version()`` to invalidate queued events for this handler.
+        self._version: int = 0
+
+    @property
+    def version(self) -> int:
+        return self._version
+
+    def advance_version(self) -> int:
+        """Invalidate queued events targeting this component (those with older ``event.version``)."""
+        self._version += 1
+        return self._version
 
     def _record_snapshot(self, engine: Engine) -> None:
         if not self.track_state:

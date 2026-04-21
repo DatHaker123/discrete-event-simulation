@@ -1,12 +1,15 @@
-## DRS-style stockpile: constant-rate ore feed -> crusher (mode rules via DRS_utils) -> sink
+## DRS-style stockpile: uniform hopper rate (one announcement) -> crusher (mode rules via DRS_utils) -> sink
 #
-# Same behavior as drs_crusher_tickwise.py, but crusher mode selection uses
-# ModeResolver/ModeRule/Constraint from src.modules.DRS_utils.
+# Source is a ``SourceComponent`` with ``interval=None``: only external ``Generate`` events drive it.
+# The engine queues one ``Generate`` at t=0 whose ``entity`` carries the hopper rate; no further
+# Generates are scheduled. The crusher stores
+# the hopper discharge rate in ``state["source_rate_tonnes_per_unit_time"]`` and advances feed/crush
+# on self-scheduled ``HopperTick`` events. Based on drs_crusher_2; deterministic.
 
 import sys
 import uuid
 from pathlib import Path
-from typing import Any
+from typing import Any, Callable
 
 _root = Path(__file__).resolve().parent.parent.parent
 _src = _root / "src"
@@ -32,17 +35,17 @@ from src.modules import (
     state_key_series_from_history,
 )
 from src.modules.DRS_utils import OperationModeConstraint, OperationModeResolver, OperationModeRule, OperationMode
-from src.modules.utils import ConstantDistribution, UniformDistribution
+from src.modules.utils import ConstantDistribution
 
 
-# --- Tuning: feed and timing ---
-# Source emits one batch per tick (interval); each batch size is drawn from RAW_BATCH.
-SOURCE_INTERVAL = ConstantDistribution(1.0)
-RAW_BATCH = UniformDistribution(2.4, 3.2)
+# --- Tuning: uniform hopper (constant discharge rate per unit time) ---
+# One rate announcement at startup; crusher applies rate * tick interval each HopperTick.
+HOPPER_TICK_INTERVAL = 1.0
+SOURCE_RATE_TONNES_PER_UNIT_TIME = 2.8
 
 # --- Tuning: crusher throughput (tonnes per processing step, mode-dependent) ---
-SLOW_CRUSH = UniformDistribution(0.9, 1.6)
-FAST_CRUSH = UniformDistribution(4.2, 6.5)
+SLOW_CRUSH = ConstantDistribution(1.25)  # midpoint of former Uniform(0.9, 1.6)
+FAST_CRUSH = ConstantDistribution(5.35)  # midpoint of former Uniform(4.2, 6.5)
 
 
 # Modes embed tuning in ``data``; rules return these objects—handlers index keys they define.
@@ -61,9 +64,7 @@ SWELL_FACTOR = 1.1
 
 # --- Initial component.state seeds (handlers only mutate dynamics after this) ---
 INITIAL_SOURCE_STATE: dict[str, Any] = {
-    "feeds": 0,
-    "total_feed_tonnes": 0.0,
-    "last_raw_tonnes": 0.0,
+    "generate_handled": False,
 }
 
 INITIAL_CRUSHER_STATE: dict[str, Any] = {
@@ -71,46 +72,75 @@ INITIAL_CRUSHER_STATE: dict[str, Any] = {
     "mode_name": MODE_SLOW.name,
     "total_raw_in": 0.0,
     "total_crushed_out": 0.0,
+    # Filled once from the hopper rate message; mutable if the model later supports rate changes.
+    "source_rate_tonnes_per_unit_time": 0.0,
 }
 
-def ore_feed_entity(_engine: Engine, _event: Event, component: Component) -> Entity:
-    """Samples ``RAW_BATCH``, updates source ``state``, returns entity for ``Departure``."""
-    st = component.state
-    raw = RAW_BATCH.sample()
-    st["last_raw_tonnes"] = raw
-    st["feeds"] = int(st["feeds"]) + 1
-    st["total_feed_tonnes"] = float(st["total_feed_tonnes"]) + raw
-    return {"raw_tonnes": raw}
+# class ThresholdBasedCrusher(TransformerComponent):
+#     """
+#     Receives the initial ``Arrival`` with ``source_rate_tonnes_per_unit_time``, then runs the
+#     stockpile/crush step on each ``HopperTick`` (feed = rate * tick interval).
+#     """
+
+#     def __init__(
+#         self,
+#         component_id: str,
+#         arrival_rate_tonnes_per_unit_time: float,
+#         crush_transform: Callable[[Engine, Event, Component], Entity],
+#         *,
+#         track_state: bool = False,
+#     ):
+#         super().__init__(component_id, crush_transform, track_state=track_state)
+#         self.set_handleable_event("Arrival", self.initial_rate_arrival_handler)
+#         self.set_handleable_event("Departure", self.default_handle_departure)
+
+#     def rate_arrival_handler(self, _engine: Engine, _event: Event, _component: Component) -> None:
+#         self.state["arrival_rate_tonnes_per_unit_time"] = arrival_rate_tonnes_per_unit_time
+
+#     def initial_rate_arrival_handler(self, _engine: Engine, event: Event, component: Component) -> None:
+#         ent = event.entity
+#         if "arrival_rate_tonnes_per_unit_time" not in ent:
+#             raise ValueError(
+#                 f"Crusher expected initial arrival rate announcement, got entity keys: {list(ent.keys())}"
+#             )
+#         component.state["arrival_rate_tonnes_per_unit_time"] = float(ent["arrival_rate_tonnes_per_unit_time"])
 
 
-def drs_crusher_simulation(visualize: bool = False) -> Engine:
+
+def drs_crusher_simulation(visualize: bool = False) -> tuple[]:
     """
-    Build and run source → crusher → sink. Returns the ``Engine`` after ``run()``; use
-    ``get_results()`` to reach components (e.g. crusher ``component_id == "crusher"``).
+    Wire source → crusher → sink, run the engine, return a text report and the crusher
+    (for plotting ``state_history``). Sections below mirror the setup order.
     """
     # --- Engine ---
-    # Queue an initial Generate at t=0; optional PDF visualization; stop at TIME_LIMIT.
+    # One external Generate only; SourceComponent with interval=None does not self-schedule more.
+    hopper_rate_entity: Entity = {"source_rate_tonnes_per_unit_time": SOURCE_RATE_TONNES_PER_UNIT_TIME}
+
     engine = Engine(
         startup_events=[Event(0, "source", "Generate", {}, {})],
         visualize=visualize,
         time_limit=TIME_LIMIT,
     )
 
-    # --- Source ---
-    # Constant-interval feeds; state tracks batch counts and last sample for inspection.
-    source = SourceComponent(
-        "source",
-        ore_feed_entity,
-        interval=SOURCE_INTERVAL,
+    # --- Source (driven only by startup_events Generate; interval=None) ---
+    hopper_source = SourceComponent(
+        "hopper_source",
+        lambda _e, _ev, _c: hopper_rate_entity,
+        interval=None,
         track_state=True,
     )
-    source.state.update(INITIAL_SOURCE_STATE)
+    hopper_source.state.update(INITIAL_SOURCE_STATE)
+
+    initial_rate_entity: Entity = {"arrival_rate_tonnes_per_unit_time": SOURCE_RATE_TONNES_PER_UNIT_TIME}
+    def rate_update_handler(engine: Engine, _event: Event, component: Component) -> None:
+        current_time = engine.get_current_time()
+        arrival_event = Event(current_time, component.component_id, "ArrivalRateUpdate", initial_rate_entity, {}) 
+        engine.add_event(arrival_event)
+
+    hopper_source.set_handleable_event("Departure", rate_update_handler)
+
 
     # --- Mode rules (DRS_utils) ---
-    # Rules see the same (engine, event, component) triple as handlers. Stock *after* this
-    # feed is stockpile + incoming raw_tonnes (matches crush_transform before state write).
-    # Each rule's ``mode`` is an ``OperationalMode`` (name + string-keyed ``data``).
-    # Higher priority first: fast when high, else slow when low; else resolve() uses current mode_name.
     mode_resolver: OperationModeResolver[OperationMode] = OperationModeResolver()
 
     stockpile_low = OperationModeConstraint(
@@ -142,8 +172,7 @@ def drs_crusher_simulation(visualize: bool = False) -> Engine:
     mode_resolver.add_rule(slow_mode_rule)
     mode_resolver.add_rule(fast_mode_rule)
 
-    # --- Crusher (transformer) ---
-    # On each Arrival: resolve mode, sample capacity, update stockpile and counters, emit outbound entity.
+    # --- Crusher: each hopper step feeds raw_in = source_rate * tick_interval ---
     def crush_transform(_engine: Engine, event: Event, comp: Component) -> Entity:
         st = comp.state
         raw_in = float(event.entity.get("raw_tonnes", 0.0))
@@ -175,35 +204,39 @@ def drs_crusher_simulation(visualize: bool = False) -> Engine:
         }
         return entity
 
-    crusher = TransformerComponent("crusher", crush_transform, track_state=True)
+    crusher = TransformerComponent(
+        "crusher",
+        crush_transform,
+        track_state=True,
+    )
     crusher.state.update(INITIAL_CRUSHER_STATE)
 
+    def handle_arrival_rate_update(_engine: Engine, event: Event, component: Component) -> None:
+        st = component.state
+        st["source_rate_tonnes_per_unit_time"] = float(event.entity.get("arrival_rate_tonnes_per_unit_time", 0.0))
+    crusher.set_handleable_event("ArrivalRateUpdate", handle_arrival_rate_update)
+
     # --- Sink ---
-    # Records arrivals only; no downstream.
     sink = SinkComponent("sink", track_state=False)
 
     # --- Topology and registration ---
-    source.output_to(crusher)
+    hopper_source.output_to(crusher)
     crusher.output_to(sink)
 
-    for c in (source, crusher, sink):
+    for c in (hopper_source, crusher, sink):
         engine.add_component(c)
 
     # --- Run ---
     engine.run()
-    return engine
+    return get_records_as_printable_string(engine.get_results()), crusher
 
 
 # --- CLI: run simulation, print report and stockpile samples; optional --plot ---
 if __name__ == "__main__":
     setup_logging(level=logging.INFO, log_file="sim.log", output_dir="output")
-    
-    engine = drs_crusher_simulation(visualize=False)
-    components = engine.get_results()   
-    print(get_records_as_printable_string(components))
-    crusher = next(c for c in components if c.component_id == "crusher")
+    report, crusher = drs_crusher_simulation(visualize=False)
+    print(report)
     series = state_key_series_from_history(crusher, "stockpile")
-
     print("\n# stockpile vs time (t, stockpile) - sample for plotting")
     for t, s in series[:25]:
         print(f"{t:.4f}\t{s:.4f}")

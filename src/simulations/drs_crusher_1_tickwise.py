@@ -45,7 +45,7 @@ from src.modules import (
     setup_logging,
     state_key_series_from_history,
 )
-from src.modules.utils import ConstantDistribution, Distribution, UniformDistribution
+from src.modules.utils import ConstantDistribution, UniformDistribution
 
 
 # --- Tuning (balance inflow vs slow/fast outflow for visible up/down stockpile) ---
@@ -78,42 +78,51 @@ INITIAL_CRUSHER_STATE: dict[str, Any] = {
 }
 
 
-class OreFeedSource(SourceComponent):
+def ore_feed_entity(_engine: Engine, _event: Event, component: Component) -> Entity:
+    """Samples ``RAW_BATCH``, updates source ``state``, returns entity for ``Departure``."""
+    st = component.state
+    raw = RAW_BATCH.sample()
+    st["last_raw_tonnes"] = raw
+    st["feeds"] = int(st["feeds"]) + 1
+    st["total_feed_tonnes"] = float(st["total_feed_tonnes"]) + raw
+    return {"raw_tonnes": raw}
+
+
+def crush_transform(_engine: Engine, event: Event, comp: Component) -> Entity:
+    st = comp.state
+    raw_in = float(event.entity.get("raw_tonnes", 0.0))
+    stock_before = float(st["stockpile"])
+
+    stock_after_feed = stock_before + raw_in
+
+    mode = st["mode"]
+    if stock_after_feed >= HIGH_STOCK:
+        mode = "fast"
+    elif stock_after_feed <= LOW_STOCK:
+        mode = "slow"
+    st["mode"] = mode
+
+    capacity = FAST_CRUSH.sample() if mode == "fast" else SLOW_CRUSH.sample()
+    crushed = min(stock_after_feed, capacity)
+
+    stock_after = stock_after_feed - crushed
+    st["stockpile"] = stock_after
+
+    st["total_raw_in"] = float(st["total_raw_in"]) + raw_in
+    st["total_crushed_out"] = float(st["total_crushed_out"]) + crushed
+
+    return {
+        "crushed_tonnes": crushed,
+        "stockpile_after": stock_after,
+        "mode": mode,
+        "raw_in": raw_in,
+    }
+
+def drs_crusher_simulation(visualize: bool = False) -> Engine:
     """
-    ``entity_generator`` samples ore, updates source ``state``, and returns the emitted entity.
-    """
-
-    def __init__(
-        self,
-        component_id: str,
-        raw_batch: UniformDistribution,
-        interval: Distribution,
-        *,
-        track_state: bool = False,
-    ):
-        self._raw_batch = raw_batch
-        super().__init__(
-            component_id,
-            self._generate_entity,
-            interval=interval,
-            track_state=track_state,
-        )
-
-    def _generate_entity(
-        self, _engine: Engine, _event: Event, component: Component
-    ) -> Entity:
-        st = component.state
-        raw = self._raw_batch.sample()
-        st["last_raw_tonnes"] = raw
-        st["feeds"] = int(st["feeds"]) + 1
-        st["total_feed_tonnes"] = float(st["total_feed_tonnes"]) + raw
-        return {"raw_tonnes": raw}
-
-
-def drs_crusher_simulation(visualize: bool = False) -> tuple[str, TransformerComponent]:
-    """
-    Run source → crusher → sink. Returns (stats text, crusher). Plot stockpile with
-    ``state_key_series_from_history(crusher, "stockpile")`` (see ``src.modules.stats``).
+    Build and run source → crusher → sink. Returns the ``Engine`` after ``run()``; use
+    ``get_results()`` to reach components (e.g. crusher ``component_id == "crusher"``) for
+    ``state_history`` and sink records.
     """
     engine = Engine(
         startup_events=[Event(0, "source", "Generate", {}, {})],
@@ -121,43 +130,14 @@ def drs_crusher_simulation(visualize: bool = False) -> tuple[str, TransformerCom
         time_limit=TIME_LIMIT,
     )
 
-    source = OreFeedSource(
+    source = SourceComponent(
         "source",
-        RAW_BATCH,
-        SOURCE_INTERVAL,
+        ore_feed_entity,
+        interval=SOURCE_INTERVAL,
         track_state=True,
     )
     source.state.update(INITIAL_SOURCE_STATE)
 
-    def crush_transform(_engine: Engine, event: Event, comp: Component) -> Entity:
-        st = comp.state
-        raw_in = float(event.entity.get("raw_tonnes", 0.0))
-        stock_before = float(st["stockpile"])
-
-        stock_after_feed = stock_before + raw_in
-
-        mode = st["mode"]
-        if stock_after_feed >= HIGH_STOCK:
-            mode = "fast"
-        elif stock_after_feed <= LOW_STOCK:
-            mode = "slow"
-        st["mode"] = mode
-
-        capacity = FAST_CRUSH.sample() if mode == "fast" else SLOW_CRUSH.sample()
-        crushed = min(stock_after_feed, capacity)
-
-        stock_after = stock_after_feed - crushed
-        st["stockpile"] = stock_after
-
-        st["total_raw_in"] = float(st["total_raw_in"]) + raw_in
-        st["total_crushed_out"] = float(st["total_crushed_out"]) + crushed
-
-        return {
-            "crushed_tonnes": crushed,
-            "stockpile_after": stock_after,
-            "mode": mode,
-            "raw_in": raw_in,
-        }
 
     crusher = TransformerComponent("crusher", crush_transform, track_state=True)
     crusher.state.update(INITIAL_CRUSHER_STATE)
@@ -171,13 +151,15 @@ def drs_crusher_simulation(visualize: bool = False) -> tuple[str, TransformerCom
         engine.add_component(c)
 
     engine.run()
-    return get_records_as_printable_string(engine.get_results()), crusher
+    return engine
 
 
 if __name__ == "__main__":
     setup_logging(level=logging.INFO, log_file="sim.log", output_dir="output")
-    report, crusher = drs_crusher_simulation(visualize=False)
-    print(report)
+    engine = drs_crusher_simulation(visualize=False)
+    components = engine.get_results()
+    print(get_records_as_printable_string(components))
+    crusher = next(c for c in components if c.component_id == "crusher")
     series = state_key_series_from_history(crusher, "stockpile")
     print("\n# stockpile vs time (t, stockpile) — sample for plotting")
     for t, s in series[:25]:
