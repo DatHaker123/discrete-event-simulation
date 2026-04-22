@@ -18,11 +18,11 @@ for p in (_src, _root):
 import logging
 
 from src.core import (
-    Component,
     Engine,
     Entity,
     Event,
     SinkComponent,
+    SimulationContext,
     SourceComponent,
     TransformerComponent,
 )
@@ -47,8 +47,8 @@ FAST_CRUSH = UniformDistribution(4.2, 6.5)
 
 
 # Modes embed tuning in ``data``; rules return these objects—handlers index keys they define.
-check_stockpile_high = lambda comp: float(comp.state["stockpile"]) >= HIGH_STOCK
-check_stockpile_low = lambda comp: float(comp.state["stockpile"]) <= LOW_STOCK
+check_stockpile_high = lambda ctx: float(ctx.component.state["stockpile"]) >= HIGH_STOCK
+check_stockpile_low = lambda ctx: float(ctx.component.state["stockpile"]) <= LOW_STOCK
 stockpile_high_trigger = OperationModeTrigger(name="stockpile_too_high", check=check_stockpile_high)
 stockpile_low_trigger = OperationModeTrigger(name="stockpile_too_low", check=check_stockpile_low)
 MODE_SLOW = OperationMode("slow", triggers=[stockpile_low_trigger], data={"crush_speed": SLOW_CRUSH})
@@ -77,9 +77,10 @@ INITIAL_CRUSHER_STATE: dict[str, Any] = {
     "total_crushed_out": 0.0,
 }
 
-def ore_feed_entity(_engine: Engine, _event: Event, component: Component) -> Entity:
+# This defines the entity that is emitted by the source component.
+def ore_feed_entity(ctx: SimulationContext) -> Entity:
     """Samples ``RAW_BATCH``, updates source ``state``, returns entity for ``Departure``."""
-    st = component.state
+    st = ctx.component.state
     raw = RAW_BATCH.sample()
     st["last_raw_tonnes"] = raw
     st["feeds"] = int(st["feeds"]) + 1
@@ -90,16 +91,16 @@ def ore_feed_entity(_engine: Engine, _event: Event, component: Component) -> Ent
 TransformerComponentWithMode = with_operational_mode(TransformerComponent)
 
 
-def crush_transform(_engine: Engine, event: Event, comp: Component) -> Entity:
-    st = comp.state
-    raw_in = float(event.entity.get("raw_tonnes", 0.0))
+def crush_transform(ctx: SimulationContext) -> Entity:
+    st = ctx.component.state
+    raw_in = float(ctx.event.entity.get("raw_tonnes", 0.0))
 
     # 1) Apply incoming feed first so mode triggers see post-feed stock.
     st["stockpile"] = float(st["stockpile"]) + raw_in
     st["total_raw_in"] = float(st["total_raw_in"]) + raw_in
 
     # 2) Resolve mode from updated component state.
-    selected_mode = comp.update_current_mode()
+    selected_mode = ctx.component.update_current_mode(ctx)
 
     # 3) Execute crushing with the selected mode and commit state.
     capacity = selected_mode.data["crush_speed"].sample()

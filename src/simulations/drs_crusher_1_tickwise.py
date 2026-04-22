@@ -31,11 +31,11 @@ import logging
 from typing import Any
 
 from src.core import (
-    Component,
     Engine,
     Entity,
     Event,
     SinkComponent,
+    SimulationContext,
     SourceComponent,
     TransformerComponent,
 )
@@ -78,9 +78,9 @@ INITIAL_CRUSHER_STATE: dict[str, Any] = {
 }
 
 
-def ore_feed_entity(_engine: Engine, _event: Event, component: Component) -> Entity:
+def ore_feed_entity(ctx: SimulationContext) -> Entity:
     """Samples ``RAW_BATCH``, updates source ``state``, returns entity for ``Departure``."""
-    st = component.state
+    st = ctx.component.state
     raw = RAW_BATCH.sample()
     st["last_raw_tonnes"] = raw
     st["feeds"] = int(st["feeds"]) + 1
@@ -88,9 +88,9 @@ def ore_feed_entity(_engine: Engine, _event: Event, component: Component) -> Ent
     return {"raw_tonnes": raw}
 
 
-def crush_transform(_engine: Engine, event: Event, comp: Component) -> Entity:
-    st = comp.state
-    raw_in = float(event.entity.get("raw_tonnes", 0.0))
+def crush_transform(ctx: SimulationContext) -> Entity:
+    st = ctx.component.state
+    raw_in = float(ctx.event.entity.get("raw_tonnes", 0.0))
     stock_before = float(st["stockpile"])
 
     stock_after_feed = stock_before + raw_in

@@ -12,12 +12,12 @@ for p in (_src, _root):
 
 import logging
 from src.core import (
-    Component,
     DelayComponent,
     Engine,
     Entity,
     Event,
     SinkComponent,
+    SimulationContext,
     SourceComponent,
     TransformerComponent,
 )
@@ -30,24 +30,24 @@ def simple_simulation():
     engine.add_startup_event(Event(0, "source", "Generate", {}, {}))
     engine.simulation_variables["token_count"] = 0
 
-    def token_generator(_engine: Engine, _event: Event, _comp: Component) -> Entity:
-        _engine.simulation_variables["token_count"] += 1
-        return {"name": "token", "value": _engine.simulation_variables["token_count"]}
+    def token_generator(ctx: SimulationContext) -> Entity:
+        ctx.engine.simulation_variables["token_count"] += 1
+        return {"name": "token", "value": ctx.engine.simulation_variables["token_count"]}
 
     source = SourceComponent("source", token_generator, UniformDistribution(0, 10))
 
     delay = DelayComponent("delay", UniformDistribution(0, 10), capacity=1000)
 
-    def transformation_function(engine: Engine, event: Event, comp: Component) -> Entity:
-        original = event.entity
-        st = comp.state
+    def transformation_function(ctx: SimulationContext) -> Entity:
+        original = ctx.event.entity
+        st = ctx.component.state
         if original["value"] > 5:
             original["value"] = original["value"] - 5
             original["name"] = "token2"
 
-        if engine.simulation_variables["token_count"] > 10:
+        if ctx.engine.simulation_variables["token_count"] > 10:
             original["name"] = "token3"
-            original["value"] = engine.simulation_variables["token_count"] - 10
+            original["value"] = ctx.engine.simulation_variables["token_count"] - 10
 
         if st["token_count"] > 15:
             original["name"] = "token4"

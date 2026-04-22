@@ -28,6 +28,7 @@ from src.core import (
     Entity,
     Event,
     SinkComponent,
+    SimulationContext,
     SourceComponent,
     TransformerComponent,
 )
@@ -128,14 +129,16 @@ def drs_crusher_simulation(visualize: bool = False) -> tuple[]:
     # --- Source (driven only by startup_events Generate; interval=None) ---
     hopper_source = SourceComponent(
         "hopper_source",
-        lambda _e, _ev, _c: hopper_rate_entity,
+        lambda _ctx: hopper_rate_entity,
         interval=None,
         track_state=True,
     )
     hopper_source.state.update(INITIAL_SOURCE_STATE)
 
     initial_rate_entity: Entity = {"arrival_rate_tonnes_per_unit_time": SOURCE_RATE_TONNES_PER_UNIT_TIME}
-    def rate_update_handler(engine: Engine, _event: Event, component: Component) -> None:
+    def rate_update_handler(ctx: SimulationContext) -> None:
+        engine = ctx.engine
+        component = ctx.component
         current_time = engine.get_current_time()
         arrival_event = Event(current_time, component.component_id, "ArrivalRateUpdate", initial_rate_entity, {}) 
         engine.add_event(arrival_event)
@@ -176,16 +179,16 @@ def drs_crusher_simulation(visualize: bool = False) -> tuple[]:
     mode_resolver.add_rule(fast_mode_rule)
 
     # --- Crusher: each hopper step feeds raw_in = source_rate * tick_interval ---
-    def crush_transform(_engine: Engine, event: Event, comp: Component) -> Entity:
-        st = comp.state
-        raw_in = float(event.entity.get("raw_tonnes", 0.0))
+    def crush_transform(ctx: SimulationContext) -> Entity:
+        st = ctx.component.state
+        raw_in = float(ctx.event.entity.get("raw_tonnes", 0.0))
         stock_before = float(st["stockpile"])
 
         stock_after_feed = stock_before + raw_in
 
         current_name = str(st["mode_name"])
         default_mode = MODE_FAST if current_name == MODE_FAST.name else MODE_SLOW
-        selected_mode = mode_resolver.resolve(_engine, event, comp, default=default_mode)
+        selected_mode = mode_resolver.resolve(ctx.engine, ctx.event, ctx.component, default=default_mode)
         if selected_mode is None:
             selected_mode = default_mode
         st["mode_name"] = selected_mode.name
@@ -214,11 +217,13 @@ def drs_crusher_simulation(visualize: bool = False) -> tuple[]:
     )
     crusher.state.update(INITIAL_CRUSHER_STATE)
 
-    def handle_rate_update(_engine: Engine, event: Event, component: Component) -> None:
+    def handle_rate_update(ctx: SimulationContext) -> None:
+        engine = ctx.engine
+        component = ctx.component
         st = component.state
-        st["source_rate_tonnes_per_unit_time"] = float(event.entity.get("arrival_rate_tonnes_per_unit_time", 0.0))
+        st["source_rate_tonnes_per_unit_time"] = float(ctx.event.entity.get("arrival_rate_tonnes_per_unit_time", 0.0))
 
-        current_time = _engine.get_current_time()
+        current_time = engine.get_current_time()
         variable = st["stockpile"]
         rate_of_change = st["source_rate_tonnes_per_unit_time"]
 

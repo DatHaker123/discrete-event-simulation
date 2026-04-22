@@ -9,6 +9,7 @@ from .components import (
     SourceComponent,
     TransformerComponent,
 )
+from .context import SimulationContext
 from .engine import Engine, EventQueue
 from .events import Entity, Event, priority_for_event_type
 
@@ -20,6 +21,7 @@ __all__ = [
     "Entity",
     "Event",
     "EventQueue",
+    "SimulationContext",
     "SingleIOComponent",
     "SinkComponent",
     "SourceComponent",
