@@ -52,7 +52,11 @@ class Engine:
         output_dir: str = "output",
     ):
         _max = os.getenv("MAX_SIM_TIME")
-        self.time_limit = float(_max) if _max is not None and _max != "" else time_limit
+        # Explicit simulation value wins; env var is fallback only when time_limit is omitted.
+        if time_limit is not None:
+            self.time_limit = time_limit
+        else:
+            self.time_limit = float(_max) if _max is not None and _max != "" else None
         self._components = {}
         self._event_queue = EventQueue()
         self._current_time = 0.0

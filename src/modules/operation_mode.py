@@ -17,6 +17,7 @@ class OperationModeTrigger:
     # Return simulation time (float) when this trigger is expected next, or None if no
     # upcoming crossing is expected. This is primarily useful for continuous
     # threshold-crossing simulations; tickwise models typically do not need it.
+    # Ex: expected_next_trigger_time = lambda ctx, delta: (100 - ctx.component.state["stockpile"]) / delta.get("stockpile")
     expected_next_trigger_time: Callable[[SimulationContext, dict[str, float]], float | None] | None = None
 
 
