@@ -24,7 +24,6 @@ from src.core import (
     Event,
     SinkComponent,
     SimulationContext,
-    SourceComponent,
     TransformerComponent,
 )
 from src.modules import (
@@ -34,7 +33,7 @@ from src.modules import (
     state_key_series_from_history,
 )
 from src.modules.operation_mode import OperationMode, OperationModeTrigger, with_operational_mode
-from src.modules.threshold_crossing import get_departure_event_forwarder
+from src.modules.threshold_crossing import RateSourceComponent, get_linear_predictor
 from src.modules.utils import ConstantDistribution
 
 # --- Tuning: deterministic rates and capacities ---
@@ -67,41 +66,27 @@ INITIAL_CRUSHER_STATE: dict[str, Any] = {
 
 
 # --- Threshold-crossing predictors (piecewise-constant linear model) ---
-def _predict_time_to_high(ctx: SimulationContext, delta: dict[str, float]) -> float | None:
-    stock = float(ctx.component.state["stockpile"])
-    d_stock = float(delta.get("stockpile", 0.0))
-    now = ctx.engine.get_current_time()
-    if stock >= HIGH_STOCK:
-        return now
-    if d_stock <= 0.0:
-        return None
-    return now + (HIGH_STOCK - stock) / d_stock
-
-
-def _predict_time_to_low(ctx: SimulationContext, delta: dict[str, float]) -> float | None:
-    stock = float(ctx.component.state["stockpile"])
-    d_stock = float(delta.get("stockpile", 0.0))
-    now = ctx.engine.get_current_time()
-    if stock <= LOW_STOCK:
-        return now
-    if d_stock >= 0.0:
-        return None
-    return now + (LOW_STOCK - stock) / d_stock
+predict_time_to_high = get_linear_predictor(
+    state_key="stockpile",
+    threshold=HIGH_STOCK,
+    crossing="at_or_above",
+)
+predict_time_to_low = get_linear_predictor(
+    state_key="stockpile",
+    threshold=LOW_STOCK,
+    crossing="at_or_below",
+)
 
 
 # --- Trigger checks: is the mode condition currently true? ---
 check_stockpile_high = lambda ctx: float(ctx.component.state["stockpile"]) >= HIGH_STOCK
 check_stockpile_low = lambda ctx: float(ctx.component.state["stockpile"]) <= LOW_STOCK
-stockpile_high_trigger = OperationModeTrigger(name="stockpile_at_or_above_high", check=check_stockpile_high, expected_next_trigger_time=_predict_time_to_high)
-stockpile_low_trigger = OperationModeTrigger(name="stockpile_at_or_below_low", check=check_stockpile_low, expected_next_trigger_time=_predict_time_to_low)
+stockpile_high_trigger = OperationModeTrigger(name="stockpile_at_or_above_high", check=check_stockpile_high, expected_next_trigger_time=predict_time_to_high)
+stockpile_low_trigger = OperationModeTrigger(name="stockpile_at_or_below_low", check=check_stockpile_low, expected_next_trigger_time=predict_time_to_low)
 MODE_SLOW = OperationMode("slow", triggers=[stockpile_low_trigger], data={"crush_rate_tph": SLOW_CAPACITY_TPH}, priority=10)
 MODE_FAST = OperationMode("fast", triggers=[stockpile_high_trigger], data={"crush_rate_tph": FAST_CAPACITY_TPH}, priority=20)
 
 TransformerComponentWithMode = with_operational_mode(TransformerComponent)
-forward_departure_as_rate_update = get_departure_event_forwarder(
-    target_event_type="RateUpdate",
-    payload_factory=lambda ctx: {"rate_tph": float(ctx.event.entity.get("rate_tph", 0.0))},
-)
 
 
 def startup_rate_entity(ctx: SimulationContext) -> Entity:
@@ -199,14 +184,18 @@ def drs_crusher_simulation(visualize: bool = False) -> Engine:
 
     # --- Source ---
     # Startup-only source: emits one rate update at t=0 (no interval self-scheduling).
-    source = SourceComponent("source", startup_rate_entity, interval=None, track_state=True)
-    source.state.update(INITIAL_SOURCE_STATE)
-    source.set_handleable_event("Departure", forward_departure_as_rate_update)
+    source = RateSourceComponent(
+        "source",
+        startup_rate_entity,
+        interval=None,
+        track_state=True,
+    )
+    source.state = INITIAL_SOURCE_STATE
 
     # --- Crusher ---
     # Transformer used as a generic single-output block with mode manager mixin.
     crusher = TransformerComponentWithMode("crusher", lambda _ctx: {}, track_state=True)
-    crusher.state.update(INITIAL_CRUSHER_STATE)
+    crusher.state = INITIAL_CRUSHER_STATE
     crusher.add_mode(MODE_SLOW)
     crusher.add_mode(MODE_FAST)
     crusher.set_handleable_event("RateUpdate", crusher_rate_update_handler)
