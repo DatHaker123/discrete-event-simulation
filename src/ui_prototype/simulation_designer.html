@@ -1,0 +1,969 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Simulation Designer Prototype</title>
+    <style>
+      :root {
+        --bg: #f6f7fb;
+        --panel: #ffffff;
+        --border: #d8dce6;
+        --text: #252a34;
+        --muted: #6b7485;
+        --port: #9aa2b1;
+        --node: #e9edf6;
+        --node-border: #adb7cb;
+        --wire: #6f7ea6;
+      }
+
+      * {
+        box-sizing: border-box;
+      }
+
+      html,
+      body {
+        margin: 0;
+        height: 100%;
+        font-family: Arial, sans-serif;
+        color: var(--text);
+        background: var(--bg);
+      }
+
+      .app {
+        --left-w: 240px;
+        --right-w: 0px;
+        display: grid;
+        grid-template-columns: var(--left-w) 1fr var(--right-w);
+        height: 100%;
+      }
+
+      .app.props-open {
+        --right-w: 280px;
+      }
+
+      .sidebar {
+        border-right: 1px solid var(--border);
+        background: var(--panel);
+        padding: 14px;
+        overflow: hidden;
+      }
+
+      .sidebar-shell {
+        display: flex;
+        flex-direction: column;
+        height: 100%;
+      }
+
+      .sidebar-header {
+        display: flex;
+        align-items: center;
+        justify-content: flex-start;
+        margin-bottom: 10px;
+      }
+
+      .sidebar h2 {
+        margin: 0;
+        font-size: 17px;
+      }
+
+      .sidebar-content {
+        flex: 1;
+      }
+
+      .preview-btn {
+        width: 100%;
+        margin-top: 12px;
+        border: 1px solid var(--border);
+        border-radius: 8px;
+        background: #eef2fb;
+        color: #39435a;
+        font-size: 13px;
+        padding: 9px 10px;
+        cursor: pointer;
+      }
+
+      .preview-btn:hover {
+        background: #e2e8f7;
+      }
+
+      .hint {
+        font-size: 12px;
+        line-height: 1.4;
+        color: var(--muted);
+        margin: 0 0 14px;
+      }
+
+      .palette-item {
+        padding: 10px 12px;
+        margin-bottom: 8px;
+        border: 1px solid var(--border);
+        border-radius: 8px;
+        background: #f8faff;
+        cursor: grab;
+        user-select: none;
+        font-size: 14px;
+      }
+
+      .palette-item:active {
+        cursor: grabbing;
+      }
+
+      .canvas-wrap {
+        position: relative;
+        overflow: hidden;
+      }
+
+      .canvas {
+        position: absolute;
+        inset: 0;
+      }
+
+      .drop-guide {
+        position: absolute;
+        left: 14px;
+        top: 12px;
+        font-size: 12px;
+        color: var(--muted);
+        background: rgba(255, 255, 255, 0.85);
+        border: 1px solid var(--border);
+        border-radius: 999px;
+        padding: 4px 10px;
+        pointer-events: none;
+      }
+
+      svg.wires {
+        position: absolute;
+        inset: 0;
+        width: 100%;
+        height: 100%;
+        pointer-events: none;
+      }
+
+      .node {
+        position: absolute;
+        width: 148px;
+        min-height: 64px;
+        border: 1px solid var(--node-border);
+        background: var(--node);
+        border-radius: 10px;
+        box-shadow: 0 2px 5px rgba(35, 48, 80, 0.12);
+        user-select: none;
+      }
+
+      .node.node-selected {
+        border-color: #6578a5;
+        box-shadow: 0 0 0 2px rgba(101, 120, 165, 0.22), 0 2px 5px rgba(35, 48, 80, 0.12);
+      }
+
+      .node-delete {
+        position: absolute;
+        right: 6px;
+        top: 5px;
+        width: 18px;
+        height: 18px;
+        border: 1px solid #9ba6bc;
+        border-radius: 999px;
+        background: #f3f5fb;
+        color: #5f697f;
+        font-size: 12px;
+        line-height: 14px;
+        cursor: pointer;
+        padding: 0;
+      }
+
+      .node-delete:hover {
+        background: #e5eaf7;
+      }
+
+      .node-title {
+        font-size: 14px;
+        font-weight: 600;
+        text-align: center;
+        padding: 10px 8px 8px;
+        border-bottom: 1px solid rgba(120, 132, 162, 0.3);
+      }
+
+      .node-sub {
+        text-align: center;
+        color: var(--muted);
+        font-size: 11px;
+        padding: 6px 8px 10px;
+      }
+
+      .ports {
+        position: absolute;
+        inset: 0;
+        pointer-events: none;
+      }
+
+      .port {
+        pointer-events: auto;
+        position: absolute;
+        width: 11px;
+        height: 11px;
+        border-radius: 999px;
+        background: var(--port);
+        border: 1px solid #7a8392;
+        cursor: crosshair;
+      }
+
+      .port.in {
+        left: -6px;
+      }
+
+      .port.out {
+        right: -6px;
+      }
+
+      .conn-handle {
+        position: absolute;
+        width: 11px;
+        height: 11px;
+        border-radius: 999px;
+        border: 1px solid #7f8798;
+        background: #a6adbb;
+        cursor: pointer;
+        color: #2e3442;
+        font-size: 9px;
+        line-height: 9px;
+        text-align: center;
+        padding: 0;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        user-select: none;
+      }
+
+      .props-panel {
+        border-left: 1px solid var(--border);
+        background: var(--panel);
+        padding: 14px;
+        overflow: hidden;
+        opacity: 0;
+        pointer-events: none;
+      }
+
+      .app.props-open .props-panel {
+        opacity: 1;
+        pointer-events: auto;
+      }
+
+      .props-panel h2 {
+        margin: 0 0 10px;
+        font-size: 17px;
+      }
+
+      .props-label {
+        font-size: 12px;
+        color: var(--muted);
+        margin: 0 0 8px;
+      }
+
+      .props-content {
+        display: grid;
+        gap: 10px;
+      }
+
+      .props-empty {
+        min-height: 90px;
+        border: 1px dashed #c5ccd9;
+        border-radius: 8px;
+        background: #fafbff;
+        color: #818a9a;
+        font-size: 12px;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        text-align: center;
+        padding: 10px;
+      }
+
+      .props-row {
+        display: grid;
+        gap: 5px;
+      }
+
+      .props-row label {
+        font-size: 12px;
+        color: var(--muted);
+      }
+
+      .props-input,
+      .props-select,
+      .props-textarea {
+        width: 100%;
+        border: 1px solid #c6cedc;
+        border-radius: 6px;
+        background: #fff;
+        color: #2f3440;
+        font-size: 13px;
+        padding: 6px 8px;
+      }
+
+      .props-textarea {
+        min-height: 66px;
+        resize: vertical;
+      }
+
+      .props-checkbox {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        font-size: 13px;
+        color: #3c4352;
+      }
+
+      .props-divider {
+        border-top: 1px solid #e0e5ef;
+        margin-top: 2px;
+        padding-top: 8px;
+        color: #667084;
+        font-size: 12px;
+        font-weight: 600;
+      }
+
+      .preview-modal {
+        position: fixed;
+        inset: 0;
+        background: rgba(22, 27, 36, 0.48);
+        display: none;
+        align-items: center;
+        justify-content: center;
+        z-index: 1000;
+      }
+
+      .preview-modal.open {
+        display: flex;
+      }
+
+      .preview-card {
+        width: min(860px, calc(100vw - 48px));
+        height: min(560px, calc(100vh - 48px));
+        border-radius: 10px;
+        border: 1px solid #c9d0de;
+        background: #ffffff;
+        box-shadow: 0 14px 40px rgba(25, 36, 62, 0.25);
+        display: flex;
+        flex-direction: column;
+      }
+
+      .preview-header {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        padding: 10px 12px;
+        border-bottom: 1px solid #e1e6f0;
+      }
+
+      .preview-title {
+        margin: 0;
+        font-size: 15px;
+        font-weight: 600;
+      }
+
+      .preview-close {
+        width: 24px;
+        height: 24px;
+        border: 1px solid #c9d0de;
+        border-radius: 6px;
+        background: #f4f7fd;
+        color: #4a5264;
+        cursor: pointer;
+      }
+
+      .preview-body {
+        flex: 1;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        color: #8a93a6;
+        font-size: 13px;
+      }
+    </style>
+  </head>
+  <body>
+    <div class="app" id="appShell">
+      <aside class="sidebar">
+        <div class="sidebar-shell">
+          <div class="sidebar-header">
+            <h2>Components</h2>
+          </div>
+          <div class="sidebar-content">
+            <p class="hint">
+              Drag components into the canvas. Drag nodes to reposition. Drag a gray port circle to another compatible
+              port to create a connection.
+            </p>
+            <div class="palette-item" draggable="true" data-type="Source">Source</div>
+            <div class="palette-item" draggable="true" data-type="Delay">Delay</div>
+            <div class="palette-item" draggable="true" data-type="Transformer">Transformer</div>
+            <div class="palette-item" draggable="true" data-type="Sink">Sink</div>
+          </div>
+          <button class="preview-btn" id="previewBtn" type="button">Preview</button>
+        </div>
+      </aside>
+
+      <main class="canvas-wrap">
+        <div class="drop-guide">Drop components here</div>
+        <svg class="wires" id="wires"></svg>
+        <div class="canvas" id="canvas"></div>
+      </main>
+
+      <aside class="props-panel">
+        <h2>Properties</h2>
+        <p class="props-label" id="propsLabel">No component selected</p>
+        <div class="props-content" id="propsContent">
+          <div class="props-empty">Select a component to edit properties.</div>
+        </div>
+      </aside>
+    </div>
+
+    <div class="preview-modal" id="previewModal" aria-hidden="true">
+      <div class="preview-card" role="dialog" aria-modal="true" aria-label="Generated code preview">
+        <div class="preview-header">
+          <h3 class="preview-title">Generated Code Preview</h3>
+          <button class="preview-close" id="previewCloseBtn" type="button">x</button>
+        </div>
+        <div class="preview-body">(Preview placeholder: code generation not implemented yet.)</div>
+      </div>
+    </div>
+
+    <script>
+      const BASIC_TYPES = {
+        Source: { inputs: 0, outputs: 1 },
+        Delay: { inputs: 1, outputs: 1 },
+        Transformer: { inputs: 1, outputs: 1 },
+        Sink: { inputs: 1, outputs: 0 },
+      };
+
+      const canvas = document.getElementById("canvas");
+      const wiresSvg = document.getElementById("wires");
+      const appShell = document.getElementById("appShell");
+      const previewBtn = document.getElementById("previewBtn");
+      const previewModal = document.getElementById("previewModal");
+      const previewCloseBtn = document.getElementById("previewCloseBtn");
+      const propsLabel = document.getElementById("propsLabel");
+      const propsContent = document.getElementById("propsContent");
+      const nodes = new Map();
+      const connections = [];
+
+      let nodeCounter = 1;
+      let draggingNode = null;
+      let dragOffsetX = 0;
+      let dragOffsetY = 0;
+      let activeWireDrag = null;
+      let draggingCanvas = false;
+      let panLastX = 0;
+      let panLastY = 0;
+      let selectedNodeId = null;
+
+      function getDefaultProperties(type, id) {
+        const common = {
+          name: `${type} ${id.replace("node-", "#")}`,
+          componentId: `${type.toLowerCase()}_${id.replace("node-", "")}`,
+          trackState: false,
+          notes: "",
+        };
+        if (type === "Source") {
+          return {
+            ...common,
+            outputEntityName: "entity",
+            intervalMode: "constant",
+            intervalA: "1.0",
+            intervalB: "",
+            startupGenerate: true,
+          };
+        }
+        if (type === "Delay") {
+          return {
+            ...common,
+            delayMode: "constant",
+            delayA: "1.0",
+            delayB: "",
+            capacity: "1000",
+          };
+        }
+        if (type === "Transformer") {
+          return {
+            ...common,
+            transformLabel: "default_transform",
+            passThroughField: "value",
+            rateHint: "",
+          };
+        }
+        if (type === "Sink") {
+          return {
+            ...common,
+            storeRecords: true,
+            collectStats: true,
+          };
+        }
+        return common;
+      }
+
+      previewBtn.addEventListener("click", () => {
+        previewModal.classList.add("open");
+        previewModal.setAttribute("aria-hidden", "false");
+      });
+      previewCloseBtn.addEventListener("click", () => {
+        previewModal.classList.remove("open");
+        previewModal.setAttribute("aria-hidden", "true");
+      });
+      previewModal.addEventListener("click", (ev) => {
+        if (ev.target === previewModal) {
+          previewModal.classList.remove("open");
+          previewModal.setAttribute("aria-hidden", "true");
+        }
+      });
+
+      document.querySelectorAll(".palette-item").forEach((item) => {
+        item.addEventListener("dragstart", (ev) => {
+          ev.dataTransfer.setData("text/plain", item.dataset.type);
+        });
+      });
+
+      canvas.addEventListener("dragover", (ev) => {
+        ev.preventDefault();
+      });
+
+      canvas.addEventListener("drop", (ev) => {
+        ev.preventDefault();
+        const type = ev.dataTransfer.getData("text/plain");
+        if (!BASIC_TYPES[type]) return;
+        const p = toCanvasPoint(ev.clientX, ev.clientY);
+        createNode(type, p.x - 74, p.y - 32);
+      });
+
+      canvas.addEventListener("pointerdown", (ev) => {
+        if (ev.target !== canvas) return;
+        setSelectedNode(null);
+        draggingCanvas = true;
+        panLastX = ev.clientX;
+        panLastY = ev.clientY;
+      });
+
+      document.addEventListener("pointermove", (ev) => {
+        if (draggingNode) {
+          const p = toCanvasPoint(ev.clientX, ev.clientY);
+          draggingNode.x = p.x - dragOffsetX;
+          draggingNode.y = p.y - dragOffsetY;
+          updateNodePosition(draggingNode);
+          updateConnectionsForNode(draggingNode.id);
+        }
+
+        if (draggingCanvas && !draggingNode && !activeWireDrag) {
+          const dx = ev.clientX - panLastX;
+          const dy = ev.clientY - panLastY;
+          panLastX = ev.clientX;
+          panLastY = ev.clientY;
+          nodes.forEach((node) => {
+            node.x += dx;
+            node.y += dy;
+            updateNodePosition(node);
+          });
+          connections.forEach(updateConnection);
+        }
+
+        if (activeWireDrag) {
+          const p = toCanvasPoint(ev.clientX, ev.clientY);
+          updateLine(activeWireDrag.tempLine, activeWireDrag.start.x, activeWireDrag.start.y, p.x, p.y);
+        }
+      });
+
+      document.addEventListener("pointerup", () => {
+        draggingNode = null;
+        draggingCanvas = false;
+      });
+
+      function toCanvasPoint(clientX, clientY) {
+        const rect = canvas.getBoundingClientRect();
+        return { x: clientX - rect.left, y: clientY - rect.top };
+      }
+
+      function createNode(type, x, y) {
+        const spec = BASIC_TYPES[type];
+        const id = `node-${nodeCounter++}`;
+        const nodeEl = document.createElement("div");
+        nodeEl.className = "node";
+        nodeEl.dataset.nodeId = id;
+
+        nodeEl.innerHTML = `
+          <button class="node-delete" title="Delete component">x</button>
+          <div class="node-title">${type}</div>
+          <div class="node-sub">${spec.inputs} in / ${spec.outputs} out</div>
+          <div class="ports"></div>
+        `;
+
+        const data = {
+          id,
+          type,
+          x,
+          y,
+          inputs: spec.inputs,
+          outputs: spec.outputs,
+          element: nodeEl,
+          properties: getDefaultProperties(type, id),
+        };
+        nodes.set(id, data);
+        canvas.appendChild(nodeEl);
+        updateNodePosition(data);
+        createPorts(data);
+
+        nodeEl.querySelector(".node-delete").addEventListener("pointerdown", (ev) => {
+          ev.stopPropagation();
+        });
+        nodeEl.querySelector(".node-delete").addEventListener("click", (ev) => {
+          ev.stopPropagation();
+          removeNode(data.id);
+        });
+
+        nodeEl.addEventListener("pointerdown", (ev) => {
+          if (ev.target.classList.contains("port")) return;
+          if (ev.target.classList.contains("node-delete")) return;
+          ev.stopPropagation();
+          setSelectedNode(data.id);
+          draggingNode = data;
+          const p = toCanvasPoint(ev.clientX, ev.clientY);
+          dragOffsetX = p.x - data.x;
+          dragOffsetY = p.y - data.y;
+        });
+      }
+
+      function createPorts(node) {
+        const portsEl = node.element.querySelector(".ports");
+        const inStep = node.inputs > 0 ? 100 / (node.inputs + 1) : 0;
+        const outStep = node.outputs > 0 ? 100 / (node.outputs + 1) : 0;
+
+        for (let i = 0; i < node.inputs; i++) {
+          const port = document.createElement("div");
+          port.className = "port in";
+          port.style.top = `${inStep * (i + 1)}%`;
+          port.dataset.nodeId = node.id;
+          port.dataset.side = "in";
+          port.dataset.index = String(i);
+          hookPortDrag(port);
+          portsEl.appendChild(port);
+        }
+
+        for (let i = 0; i < node.outputs; i++) {
+          const port = document.createElement("div");
+          port.className = "port out";
+          port.style.top = `${outStep * (i + 1)}%`;
+          port.dataset.nodeId = node.id;
+          port.dataset.side = "out";
+          port.dataset.index = String(i);
+          hookPortDrag(port);
+          portsEl.appendChild(port);
+        }
+      }
+
+      function hookPortDrag(portEl) {
+        portEl.addEventListener("pointerdown", (ev) => {
+          ev.stopPropagation();
+          const startPort = portEl;
+          const startPt = getPortCenter(startPort);
+          const tempLine = createLine(startPt.x, startPt.y, startPt.x, startPt.y, "#7f88a5", "6,4");
+          activeWireDrag = {
+            startPort,
+            start: startPt,
+            tempLine,
+          };
+        });
+
+        portEl.addEventListener("pointerup", (ev) => {
+          if (!activeWireDrag) return;
+          const endPort = portEl;
+          const startPort = activeWireDrag.startPort;
+          cleanupTempLine();
+
+          if (!isValidConnection(startPort, endPort)) return;
+          createConnection(startPort, endPort);
+          ev.stopPropagation();
+        });
+      }
+
+      document.addEventListener("pointerup", () => {
+        if (activeWireDrag) cleanupTempLine();
+      });
+
+      function isValidConnection(a, b) {
+        if (!a || !b || a === b) return false;
+        if (a.dataset.nodeId === b.dataset.nodeId) return false;
+        return a.dataset.side !== b.dataset.side;
+      }
+
+      function normalizePorts(a, b) {
+        if (a.dataset.side === "out") {
+          return { outPort: a, inPort: b };
+        }
+        return { outPort: b, inPort: a };
+      }
+
+      function connectionExists(outPort, inPort) {
+        return connections.some((c) => c.outKey === keyOfPort(outPort) && c.inKey === keyOfPort(inPort));
+      }
+
+      function createConnection(a, b) {
+        const normalized = normalizePorts(a, b);
+        if (connectionExists(normalized.outPort, normalized.inPort)) return;
+
+        const line = createLine(0, 0, 0, 0, "var(--wire)");
+        const handle = document.createElement("div");
+        handle.className = "conn-handle";
+        handle.title = "Delete connection";
+        handle.textContent = "x";
+        canvas.appendChild(handle);
+        const record = {
+          outKey: keyOfPort(normalized.outPort),
+          inKey: keyOfPort(normalized.inPort),
+          outNode: normalized.outPort.dataset.nodeId,
+          inNode: normalized.inPort.dataset.nodeId,
+          element: line,
+          handle,
+        };
+        handle.addEventListener("pointerdown", (ev) => ev.stopPropagation());
+        handle.addEventListener("click", (ev) => {
+          ev.stopPropagation();
+          removeConnection(record);
+        });
+        connections.push(record);
+        updateConnection(record);
+      }
+
+      function keyOfPort(portEl) {
+        return `${portEl.dataset.nodeId}:${portEl.dataset.side}:${portEl.dataset.index}`;
+      }
+
+      function getPortElementByKey(key) {
+        const [nodeId, side, index] = key.split(":");
+        return canvas.querySelector(`.port[data-node-id="${nodeId}"][data-side="${side}"][data-index="${index}"]`);
+      }
+
+      function updateConnection(conn) {
+        const outPort = getPortElementByKey(conn.outKey);
+        const inPort = getPortElementByKey(conn.inKey);
+        if (!outPort || !inPort) return;
+        const p1 = getPortCenter(outPort);
+        const p2 = getPortCenter(inPort);
+        updateLine(conn.element, p1.x, p1.y, p2.x, p2.y);
+        const mx = (p1.x + p2.x) / 2;
+        const my = (p1.y + p2.y) / 2;
+        conn.handle.style.left = `${mx - 5.5}px`;
+        conn.handle.style.top = `${my - 5.5}px`;
+      }
+
+      function updateConnectionsForNode(nodeId) {
+        connections.forEach((conn) => {
+          if (conn.outNode === nodeId || conn.inNode === nodeId) {
+            updateConnection(conn);
+          }
+        });
+      }
+
+      function getPortCenter(portEl) {
+        const pRect = portEl.getBoundingClientRect();
+        const cRect = canvas.getBoundingClientRect();
+        return {
+          x: pRect.left - cRect.left + pRect.width / 2,
+          y: pRect.top - cRect.top + pRect.height / 2,
+        };
+      }
+
+      function createLine(x1, y1, x2, y2, stroke, dashArray) {
+        const line = document.createElementNS("http://www.w3.org/2000/svg", "line");
+        line.setAttribute("x1", String(x1));
+        line.setAttribute("y1", String(y1));
+        line.setAttribute("x2", String(x2));
+        line.setAttribute("y2", String(y2));
+        line.setAttribute("stroke", stroke);
+        line.setAttribute("stroke-width", "2");
+        if (dashArray) line.setAttribute("stroke-dasharray", dashArray);
+        wiresSvg.appendChild(line);
+        return line;
+      }
+
+      function removeConnection(conn) {
+        const idx = connections.indexOf(conn);
+        if (idx !== -1) {
+          connections.splice(idx, 1);
+        }
+        conn.element.remove();
+        conn.handle.remove();
+      }
+
+      function removeNode(nodeId) {
+        const node = nodes.get(nodeId);
+        if (!node) return;
+        for (let i = connections.length - 1; i >= 0; i--) {
+          const conn = connections[i];
+          if (conn.outNode === nodeId || conn.inNode === nodeId) {
+            removeConnection(conn);
+          }
+        }
+        node.element.remove();
+        nodes.delete(nodeId);
+        if (selectedNodeId === nodeId) {
+          setSelectedNode(null);
+        }
+      }
+
+      function renderPropertiesEditor(node) {
+        propsContent.innerHTML = "";
+        if (!node) {
+          const empty = document.createElement("div");
+          empty.className = "props-empty";
+          empty.textContent = "Select a component to edit properties.";
+          propsContent.appendChild(empty);
+          return;
+        }
+
+        const p = node.properties || (node.properties = getDefaultProperties(node.type, node.id));
+
+        function addTextField(label, key, opts = {}) {
+          const row = document.createElement("div");
+          row.className = "props-row";
+          const lab = document.createElement("label");
+          lab.textContent = label;
+          const input = document.createElement(opts.multiline ? "textarea" : "input");
+          input.className = opts.multiline ? "props-textarea" : "props-input";
+          if (!opts.multiline) input.type = opts.type || "text";
+          input.value = p[key] ?? "";
+          input.addEventListener("input", () => {
+            p[key] = input.value;
+            if (key === "name") {
+              node.element.querySelector(".node-title").textContent = p[key] || node.type;
+            }
+          });
+          row.appendChild(lab);
+          row.appendChild(input);
+          propsContent.appendChild(row);
+        }
+
+        function addSelectField(label, key, options) {
+          const row = document.createElement("div");
+          row.className = "props-row";
+          const lab = document.createElement("label");
+          lab.textContent = label;
+          const select = document.createElement("select");
+          select.className = "props-select";
+          options.forEach((opt) => {
+            const o = document.createElement("option");
+            o.value = opt.value;
+            o.textContent = opt.label;
+            select.appendChild(o);
+          });
+          select.value = p[key] ?? options[0].value;
+          select.addEventListener("change", () => {
+            p[key] = select.value;
+            renderPropertiesEditor(node);
+          });
+          row.appendChild(lab);
+          row.appendChild(select);
+          propsContent.appendChild(row);
+        }
+
+        function addCheckbox(label, key) {
+          const wrap = document.createElement("label");
+          wrap.className = "props-checkbox";
+          const input = document.createElement("input");
+          input.type = "checkbox";
+          input.checked = Boolean(p[key]);
+          input.addEventListener("change", () => {
+            p[key] = input.checked;
+          });
+          const text = document.createElement("span");
+          text.textContent = label;
+          wrap.appendChild(input);
+          wrap.appendChild(text);
+          propsContent.appendChild(wrap);
+        }
+
+        function addDivider(title) {
+          const divider = document.createElement("div");
+          divider.className = "props-divider";
+          divider.textContent = title;
+          propsContent.appendChild(divider);
+        }
+
+        addTextField("Name", "name");
+        addTextField("Component ID", "componentId");
+        addCheckbox("Track state history", "trackState");
+        addTextField("Notes", "notes", { multiline: true });
+
+        addDivider(`${node.type} settings`);
+
+        if (node.type === "Source") {
+          addTextField("Output entity name", "outputEntityName");
+          addSelectField("Interval distribution", "intervalMode", [
+            { value: "constant", label: "Constant" },
+            { value: "uniform", label: "Uniform" },
+            { value: "none", label: "None (external only)" },
+          ]);
+          if (p.intervalMode !== "none") {
+            addTextField("Interval parameter A", "intervalA", { type: "number" });
+          }
+          if (p.intervalMode === "uniform") {
+            addTextField("Interval parameter B", "intervalB", { type: "number" });
+          }
+          addCheckbox("Startup generate event", "startupGenerate");
+        } else if (node.type === "Delay") {
+          addSelectField("Delay distribution", "delayMode", [
+            { value: "constant", label: "Constant" },
+            { value: "uniform", label: "Uniform" },
+            { value: "exponential", label: "Exponential" },
+          ]);
+          addTextField("Delay parameter A", "delayA", { type: "number" });
+          if (p.delayMode === "uniform") {
+            addTextField("Delay parameter B", "delayB", { type: "number" });
+          }
+          addTextField("Capacity", "capacity", { type: "number" });
+        } else if (node.type === "Transformer") {
+          addTextField("Transform label", "transformLabel");
+          addTextField("Pass-through field", "passThroughField");
+          addTextField("Rate hint (optional)", "rateHint", { type: "number" });
+        } else if (node.type === "Sink") {
+          addCheckbox("Store arrival records", "storeRecords");
+          addCheckbox("Collect stats", "collectStats");
+        }
+      }
+
+      function setSelectedNode(nodeId) {
+        selectedNodeId = nodeId;
+        nodes.forEach((node, id) => {
+          node.element.classList.toggle("node-selected", id === nodeId);
+        });
+        appShell.classList.toggle("props-open", nodeId !== null);
+        if (nodeId === null) {
+          propsLabel.textContent = "No component selected";
+          renderPropertiesEditor(null);
+          return;
+        }
+        const node = nodes.get(nodeId);
+        propsLabel.textContent = node ? `${node.type} (${node.id})` : "No component selected";
+        renderPropertiesEditor(node || null);
+      }
+
+      function updateLine(line, x1, y1, x2, y2) {
+        line.setAttribute("x1", String(x1));
+        line.setAttribute("y1", String(y1));
+        line.setAttribute("x2", String(x2));
+        line.setAttribute("y2", String(y2));
+      }
+
+      function cleanupTempLine() {
+        if (!activeWireDrag) return;
+        activeWireDrag.tempLine.remove();
+        activeWireDrag = null;
+      }
+
+      function updateNodePosition(node) {
+        node.element.style.left = `${node.x}px`;
+        node.element.style.top = `${node.y}px`;
+      }
+
+      window.addEventListener("resize", () => {
+        connections.forEach(updateConnection);
+      });
+    </script>
+  </body>
+</html>
