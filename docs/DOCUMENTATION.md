@@ -2,9 +2,9 @@
 
 This project is a **discrete simulation** framework in two layers:
 
-1. **Core = discrete-event simulation (DES)** — The runtime is built around a **future-event list**: simulation time jumps from event to event; components **schedule** and **handle** typed events. There is no fixed time step; state changes only when an event is processed. That is the **base program**: engine, queue, `Event`, handlers `(engine, event, component)`, wiring, sinks, delays, transformers, and sources that emit entities on a schedule you define in event logic.
+1. **Core = discrete-event simulation (DES)** — The runtime is built around a **future-event list**: simulation time jumps from event to event; components **schedule** and **handle** typed events. There is no fixed time step; state changes only when an event is processed. That is the **base program**: engine, queue, `Event`, handlers using `SimulationContext(engine, event, component)`, wiring, sinks, delays, transformers, and sources that emit entities on a schedule you define in event logic.
 
-2. **Discrete-rate simulation (DRS) features on top** — When a model **pre-schedules many future instants** (e.g. a source that always queues the next `Generate` at each tick), the queue can hold work that later becomes invalid (threshold crossings, regime changes). Each **component** owns a monotonic **`version`** and **`advance_version()`**; **`Event.version`** records the target component’s version at enqueue time. That lets you **invalidate already-queued events for that handler** without canceling them individually. Optional helpers in `src/modules/operation_mode.py` (mode rules) support DRS-style modelling but are not required for plain DES.
+2. **Discrete-rate simulation (DRS) features on top** — When a model **pre-schedules many future instants** (e.g. threshold-crossing control updates), the queue can hold work that later becomes invalid (regime changes, crossing predictions becoming obsolete). Each **component** owns a monotonic **`version`** and **`advance_version()`**; **`Event.version`** records the target component’s version at enqueue time. That lets you **invalidate already-queued events for that handler** without canceling them individually. Optional helpers in `src/modules/operation_mode.py` and `src/modules/threshold_crossing.py` support DRS-style modelling but are not required for plain DES.
 
 **What this entails in practice**
 
@@ -28,8 +28,8 @@ See *Discrete simulation styles* below for a concise comparison.
 
 **Event versions** are aimed at DRS-style queues: they invalidate **already-queued** work when the “rate” or schedule implied by past scheduling is no longer valid. They are **not** required for a purely DES formulation where the queue only ever contains events you still intend to process.
 
-- **Components** (`src/core/components.py`): Register handlers per event type. Each handler receives **`(engine, event, component)`** so you can use `component.state`, `component.output`, etc. without capturing the component in a closure.
-- **Output**: Logs under `output/` (and optionally console). With `visualize=True`, each run can write a UUID-named PDF (graph + queue per step). Sinks keep `records`; **`get_records_as_printable_string`** (`src/modules/stats.py`) formats sink tables and optional **state history**.
+- **Components** (`src/core/components.py`): Register handlers per event type. Each handler receives a **`SimulationContext`** object (`engine`, `event`, `component`) so you can use `component.state`, `component.output`, etc. without capturing the component in a closure.
+- **Output**: Logs under `output/` (and optionally console). With `visualize=True`, each run can write a UUID-named PDF (graph + queue per step). CLI simulation scripts expose this as opt-in via `--viz` (default off). Sinks keep `records`; **`get_records_as_printable_string`** (`src/modules/stats.py`) formats sink tables and optional **state history**.
 
 ### `src.core` public exports
 
@@ -49,13 +49,14 @@ Import from `src.core` (see `src/core/__init__.py`): **`Engine`**, **`EventQueue
 ```
 discrete-event-simulation/
 ├── pyproject.toml
-├── .env                    # RANDOM_SEED, MAX_SIM_TIME, VERBOSE (optional)
+├── .env                    # RANDOM_SEED, MAX_SIM_TIME, EPS_TIME, VERBOSE (optional)
 ├── docs/
 │   └── DOCUMENTATION.md    # This file
 ├── output/                 # Runtime: logs, PDFs, optional PNGs from examples
 │   ├── sim.log
 │   └── <uuid>.pdf
 └── src/
+    ├── run.py              # Central CLI runner (--file, --viz, --plot, shared reporting)
     ├── core/               # DES core: engine, events, components
     │   ├── __init__.py     # Re-exports public API
     │   ├── engine.py       # queue, run(); stamps event.version from target component
@@ -65,13 +66,16 @@ discrete-event-simulation/
     │   ├── logger.py
     │   ├── stats.py
     │   ├── utils.py
-    │   ├── operation_mode.py    # ModeResolver, ModeRule, Constraint (optional DRS modelling)
+    │   ├── operation_mode.py    # OperationMode, triggers, mode manager mixin/factory
+    │   ├── threshold_crossing.py # Rate components + threshold-crossing helper factories
     │   └── visualization.py
     └── simulations/
         ├── simple.py                 # source → delay → sink
         ├── simple2.py                # source → delay → transformer → sink
-        ├── drs_crusher_1_tickwise.py # stockpile + two-mode crusher (thresholds in code)
-        └── drs_crusher_2_tickwise_with_utils.py  # same idea; mode rules via operation_mode
+        ├── drs_crusher_1_tickwise.py
+        ├── drs_crusher_2_tickwise_with_operation_mode.py
+        ├── drs_crusher_3_threshold_crossing.py
+        └── drs_crusher_4_threshold_crossing_intended_design.py
 ```
 
 ---
@@ -84,21 +88,22 @@ discrete-event-simulation/
 - **`Event(time, handler_id, type, entity, kwargs, version=0)`** (dataclass, `slots=True`)
   - **`time`**: Simulation time when the event is processed.
   - **`handler_id`**: `component_id` of the component that handles it.
-  - **`type`**: String (`"Generate"`, `"Arrival"`, `"Departure"`, `"End"`, …) — selects the handler and, with `priority_for_event_type()`, orders same-time events.
+  - **`type`**: String (`"Generate"`, `"Arrival"`, `"Departure"`, `"RateUpdate"`, `"ModeChange"`, `"End"`, …) — selects the handler and, with `priority_for_event_type()`, orders same-time events.
   - **`entity`**: **`Entity`**. Use **`{}`** when no fields are needed (e.g. startup **`Generate`** before the source fills it; internal **`End`** event). The **`Generate`** event’s **`entity`** is ignored by **`SourceComponent.default_handle_generate`** when an **`entity_generator`** is supplied — the generated dict becomes the **`Departure`** payload.
   - **`kwargs`**: Reserved for future use (plain `dict` in the dataclass).
   - **`version`**: Snapshot of the **target** component’s **`version`** when the event enters the queue ( **`add_event`** overwrites the dataclass default). Stale when **`event.version < component.version`** for **`handler_id`**. A **DRS-layer** feature; DES-only models often never bump the component version (see the introduction above).
 
 - **`priority_for_event_type(event_type) -> int`**  
-  Lower value = higher priority when times are equal (default order: `Generate`, then `Arrival`, then `Departure`; other types get a default priority).
+  Lower value = higher priority when times are equal (current built-ins: `RateUpdate`/`ModeChange` first, then `Generate`, then `Arrival`, then `Departure`; other types get a default priority).
 
 ### Engine (`src/core/engine.py`)
 
-- **`Engine(time_limit=None, startup_events=None, visualize=True, output_dir="output")`**
-  - **`time_limit`**: When not `None`, schedules an **`"End"`** event at that time to stop the run. Overridable by env **`MAX_SIM_TIME`**. The **`End`** event uses **`entity={}`**.
-  - **`startup_events`**: Queued at the start of `run()` (e.g. first **`Generate`** per source, often **`Event(0, "source", "Generate", {}, {})`**).
+- **`Engine(time_limit=None, visualize=False, output_dir="output")`**
+  - **`time_limit`**: When not `None`, schedules an internal **`"End"`** event at that time to stop the run. If omitted, **`MAX_SIM_TIME`** is used as fallback from env. The **`End`** event uses **`entity={}`**.
   - **`visualize`**: If `True`, builds a PDF of frames under **`output_dir`**.
   - **`simulation_variables`**: `dict[str, Any]` for model-wide counters or parameters.
+
+- **`add_startup_event(event)`**: Register startup events queued at the start of `run()` (e.g. first **`Generate`** per source).
 
 - **`add_component` / `remove_component`** — Register components by **`component_id`** (must match **`handler_id`** on events).
 
@@ -123,9 +128,9 @@ discrete-event-simulation/
 - **`handle_event(engine, event)`** — Invokes the handler for **`event.type`**, then records state history if **`track_state`**.
 - **`version`** (read-only) / **`advance_version() -> int`** — Per-component epoch; **`add_event`** copies **`version`** onto each event targeting this **`component_id`**. Call **`advance_version()`** on this instance to invalidate queued events for this handler only (**DRS**); **DES-only** models often never call it.
 
-**`EventHandler`**: `Callable[[Engine, Event, Component], None]`
+**`EventHandler`**: `Callable[[SimulationContext], None]`
 
-The third argument is the **concrete component instance** receiving the event, so handlers can schedule:
+`SimulationContext.component` is the concrete receiver, so handlers can schedule:
 
 ```python
 Event(t, component.output.component_id, "Arrival", entity_dict, {})
@@ -134,12 +139,12 @@ Event(t, component.output.component_id, "Arrival", entity_dict, {})
 #### `SingleIOComponent`
 
 - **`output_to(other)` / `disconnect_output_to(other)`** — At most one primary output; **`output`** property returns that peer.
-- **`default_handle_departure(engine, event, component)`** — Schedules **`Arrival`** at **`output.component_id`** with the same **`event.entity`**.
+- **`default_handle_departure(ctx)`** — Schedules **`Arrival`** at **`output.component_id`** with the same logical payload as **`event.entity`**.
 
 #### `SourceComponent(component_id, entity_generator, interval=None, track_state=False)`
 
-- **`entity_generator(engine, event, component) -> Entity`** — Called on each **`Generate`**. Return value becomes the entity on the internal same-time **`Departure`**, then forwarded downstream as **`Arrival`**. The **`entity`** field on the **`Generate`** event itself is not used by the default source logic.
-- **`interval`**: If set (**`Distribution`**), schedules the next **`Generate`** on self at **`now + interval.sample()`**. If **`None`**, only **`startup_events`** or manually queued **`Generate`** events drive output.
+- **`entity_generator(ctx) -> Entity`** — Called on each **`Generate`**. Return value becomes the entity on the internal same-time **`Departure`**, then forwarded downstream as **`Arrival`**. The **`entity`** field on the **`Generate`** event itself is not used by the default source logic.
+- **`interval`**: If set (**`Distribution`**), schedules the next **`Generate`** on self at **`now + interval.sample()`**. If **`None`**, only startup events added via **`engine.add_startup_event(...)`** (or manually queued **`Generate`**) drive output.
 - Flow: **`Generate`** → **`Departure`** (self, entity from generator) → **`Arrival`** (output). **`default_handle_generate`** also schedules the next **`Generate`** with **`entity={}`** when **`interval`** is set.
 
 #### `DelayComponent(component_id, delay_interval, capacity=1, track_state=False)`
@@ -153,38 +158,74 @@ Event(t, component.output.component_id, "Arrival", entity_dict, {})
 
 #### `AssertComponent(component_id, condition, fail_handler=None, track_state=False)`
 
-- **`condition(engine, event, component) -> bool`**. If false, **`fail_handler`** runs (default drop or error). If true, forwards **`Arrival`** to output.
+- **`condition(ctx) -> bool`**. If false, **`fail_handler`** runs (default drop or error). If true, forwards **`Arrival`** to output.
 
 #### `TransformerComponent(component_id, transform_function, track_state=False)`
 
-- **`transform_function(engine, event, component) -> Entity`** — Returns a new **`dict`** payload; a same-time **`Departure`** is scheduled with that entity, then **`default_handle_departure`** forwards it.
+- **`transform_function(ctx) -> Entity`** — Returns a new **`dict`** payload; a same-time **`Departure`** is scheduled with that entity, then **`default_handle_departure`** forwards it.
 
-Default handlers are **public methods** (e.g. **`SourceComponent.default_handle_generate`**) so subclasses or wrappers can delegate. Call them with **`(engine, event, component)`** and ensure **`component`** is the correct concrete type.
+Default handlers are **public methods** (e.g. **`SourceComponent.default_handle_generate`**) so subclasses or wrappers can delegate. Call them with a proper **`SimulationContext`** for the intended concrete component.
 
 ---
 
-## Mode rules (`src/modules/operation_mode.py`)
+## Operation modes (`src/modules/operation_mode.py`)
 
-Optional helpers for **if/then mode** logic (e.g. crusher fast vs slow) without ad-hoc nesting — **DRS-oriented** modelling sugar, not required for DES:
+Optional helpers for **mode-driven control** (e.g. crusher fast vs slow) without ad-hoc nesting:
 
-- **`Constraint`**: **`name`**, **`check: Callable[[Engine, Event, Component], bool]`** — same triple as event handlers.
-- **`OperationalMode`**: **`name`** (string id) and **`data`** (`dict[str, Any]`; keys and value types are model-defined and not validated here). Use as **`ModeRule.mode`** so **`resolve()`** returns the full mode; handlers index **`data`** by convention (e.g. **`data["crush_speed"].sample()`**).
-- **`ModeRule`**: **`name`**, **`mode`** (often an **`OperationalMode`**), **`priority`** (higher runs first in **`resolve`**), optional **`constraints`** list, **`enabled`** flag.
-- **`ModeResolver`**: **`add_rule`**, **`remove_rule`**, **`replace_rule`**, **`enable_rule`**, **`disable_rule`**, **`get_rule`**, **`list_rules`**, **`clear_rules`**, **`resolve(engine, event, component, default=None)`**, **`explain(engine, event, component)`** (per-rule match diagnostics).
+- **`OperationModeTrigger`**:
+  - `check: Callable[[SimulationContext], bool]`
+  - optional `expected_next_trigger_time: Callable[[SimulationContext, dict[str, float]], float | None]` (mainly for continuous threshold-crossing models)
+- **`OperationMode`**:
+  - `name`, `triggers`, `data`, `priority`
+- **`HasOperationModeManager`** (mixin):
+  - `add_mode(mode)`
+  - `update_current_mode(ctx)`
+  - `get_next_mode_change(ctx, delta)`
+- **`with_operational_mode(base_cls)`**:
+  - Factory that builds a mode-enabled class from any component base class.
 
-**`resolve`** walks rules in priority order and returns the first **`mode`** whose constraints all pass; if none match, returns **`default`**.
+Example simulation: **`src/simulations/drs_crusher_2_tickwise_with_operation_mode.py`**.
 
-Example simulation: **`src/simulations/drs_crusher_2_tickwise_with_utils.py`**.
+---
+
+## Threshold-crossing helpers (`src/modules/threshold_crossing.py`)
+
+Utilities and components for continuous-state / piecewise-constant-rate DRS models:
+
+- **`get_linear_predictor(...)`**  
+  Factory for trigger prediction callbacks used by `OperationModeTrigger.expected_next_trigger_time`.
+- **`get_advancer_linear_inventory_state(...)`**  
+  Factory returning a state advancer callable (`SimulationContext -> None`) for one-dimensional inventory integration.
+- **`get_default_rate_update_handler(...)`**  
+  Default scheduler handler for `RateUpdate`/`ModeChange` loops. It:
+  1. advances state,
+  2. applies incoming upstream rate updates,
+  3. resolves mode and internal processing rate,
+  4. emits self `Departure`,
+  5. predicts and self-schedules next `ModeChange` (with component version invalidation).
+
+Specialized components:
+
+- **`RateSourceComponent`**  
+  Source-style control emitter with flow: `Generate -> Departure -> downstream RateUpdate`.
+- **`RateSchedulerComponent`**  
+  Mode-driven scheduler component with flow: `RateUpdate/ModeChange -> self Departure -> downstream RateUpdate`.
+- **`RateTransformerComponent`**  
+  Pure control-stream mapper with flow: `RateUpdate -> self Departure -> downstream RateUpdate`.
+
+Example simulation using the intended split design:
+**`src/simulations/drs_crusher_4_threshold_crossing_intended_design.py`**.
 
 ---
 
 ## Building a simulation
 
-1. Create **`Engine`** (optional **`startup_events`**, **`time_limit`**, **`visualize`**, **`output_dir`**). Optionally fill **`engine.simulation_variables`**.
+1. Create **`Engine`** (optional **`time_limit`**, **`visualize`**, **`output_dir`**). Optionally fill **`engine.simulation_variables`**.
 2. Instantiate components; wire with **`output_to`**.
 3. **`engine.add_component(...)`** for each block (IDs must match event **`handler_id`**s).
-4. **`engine.run()`**.
-5. Inspect **`get_records_as_printable_string(engine.get_results())`** or component **`state`** / **`state_history`**.
+4. Add startup events with **`engine.add_startup_event(...)`**.
+5. **`engine.run()`**.
+6. Inspect **`get_records_as_printable_string(engine.get_results())`** or component **`state`** / **`state_history`**.
 
 Minimal example (see **`src/simulations/simple.py`**):
 
@@ -193,10 +234,11 @@ from src.core import DelayComponent, Engine, Event, SinkComponent, SourceCompone
 from src.modules import get_records_as_printable_string
 from src.modules.utils import UniformDistribution
 
-engine = Engine(startup_events=[Event(0, "source", "Generate", {}, {})], visualize=True)
+engine = Engine(visualize=False)
+engine.add_startup_event(Event(0, "source", "Generate", {}, {}))
 source = SourceComponent(
     "source",
-    lambda _e, _evt, _comp: {"value": "token"},
+    lambda _ctx: {"value": "token"},
     UniformDistribution(0, 10),
 )
 delay = DelayComponent("delay", UniformDistribution(0, 10), capacity=1000)
@@ -216,7 +258,8 @@ print(get_records_as_printable_string(engine.get_results()))
 ### Environment (`.env`)
 
 - **`RANDOM_SEED`** — Seeded at import of **`src.modules.utils`** for reproducible distributions.
-- **`MAX_SIM_TIME`** — Overrides engine **`time_limit`** when set.
+- **`MAX_SIM_TIME`** — Used as fallback engine **`time_limit`** when `Engine(time_limit=...)` is omitted.
+- **`EPS_TIME`** — Small epsilon used by threshold-crossing helpers for near-immediate rescheduling.
 - **`VERBOSE`** — `1` / `true` / `yes` / `on` → DEBUG logging.
 
 ### Logging (`src/modules/logger.py`)
@@ -244,7 +287,7 @@ If a section is empty, a short placeholder line is printed.
 
 ## Visualization (`src/modules/visualization.py`)
 
-With **`visualize=True`** (the engine default), **`run()`** builds a **`Visualizer`**, calls **`add_frame`** for the initial queue and for each **`Generate` / `Arrival` / `Departure`** step, then **`close()`** to finalize the PDF. On Windows, if the console cannot print Unicode arrows in progress text, set **`PYTHONIOENCODING=utf-8`** or adjust logging.
+When **`visualize=True`**, **`run()`** builds a **`Visualizer`**, calls **`add_frame`** for the initial queue and for selected event steps, then **`close()`** to finalize the PDF. Frame selection includes material-flow events (`Generate` / `Arrival` / `Departure`) and key control-flow events (`RateUpdate` / `ModeChange`) with same-time control deduplication to keep PDFs readable.
 
 ---
 
@@ -252,7 +295,7 @@ With **`visualize=True`** (the engine default), **`run()`** builds a **`Visualiz
 
 - **Custom components**: Subclass **`Component`** or **`SingleIOComponent`**, implement **`output_to` / `disconnect_output_to`**, register handlers with **`set_handleable_event`**, schedule events with **`engine.add_event(...)`**. Use **`Entity`** (**`dict[str, Any]`**) for payloads.
 - **Epochs / `Component.advance_version`**: **DRS-layer** tool when a discrete-rate-style model has obsolete future events **for a given handler** in the queue; **DES-only** models can usually rely on explicit scheduling alone (see the introduction).
-- **Replace or wrap a default handler**: After construction, **`set_handleable_event("Arrival", my_handler)`**. Inside **`my_handler`**, call the original public method on the **instance**, e.g. **`sink.sink_handle_arrival(engine, event, sink)`** for a **`SinkComponent`** named **`sink`**, so pre/post logic composes without rebinding the same name to your wrapper.
+- **Replace or wrap a default handler**: After construction, **`set_handleable_event("Arrival", my_handler)`**. Inside **`my_handler`**, call the original public method on the instance with a proper `SimulationContext` so pre/post logic composes cleanly.
 - **Custom distributions**: Subclass **`Distribution`** in **`src/modules/utils.py`** and implement **`sample() -> float`**.
 - **Event priority**: Adjust **`priority_for_event_type`** in **`src/core/events.py`**.
 
@@ -260,28 +303,52 @@ With **`visualize=True`** (the engine default), **`run()`** builds a **`Visualiz
 
 ## Running the examples
 
+Use the central runner to execute any simulation module and share one set of CLI flags for
+visualization, plotting, logging, and post-processing output.
+
+By default, **`--file`** is resolved under **`src/simulations`**. These are equivalent:
+
+```bash
+uv run python -m src.run --file drs_crusher_4_threshold_crossing_intended_design.py
+uv run python -m src.run --file drs_crusher_4_threshold_crossing_intended_design
+uv run python -m src.run --file src/simulations/drs_crusher_4_threshold_crossing_intended_design.py
+```
+
 From the project root:
 
 ```bash
-uv run python src/simulations/simple.py
+uv run python -m src.run --file src/simulations/simple.py
 ```
 
 ```bash
-uv run python src/simulations/simple2.py
+uv run python -m src.run --file src/simulations/simple2.py
 ```
 
-DRS stockpile / crusher (inline thresholds). Pass **`--plot`** to write a UUID-named PNG under **`output/`** (see each script’s **`__main__`** block):
+DRS stockpile / crusher (inline thresholds). Pass **`--viz`** to generate visualization PDF frames and **`--plot`** to write a UUID-named PNG under **`output/`**:
 
 ```bash
-uv run python src/simulations/drs_crusher_1_tickwise.py
-uv run python src/simulations/drs_crusher_1_tickwise.py --plot
+uv run python -m src.run --file src/simulations/drs_crusher_1_tickwise.py
+uv run python -m src.run --file src/simulations/drs_crusher_1_tickwise.py --viz
+uv run python -m src.run --file src/simulations/drs_crusher_1_tickwise.py --plot
 ```
 
-Same scenario with **`ModeResolver`** / **`ModeRule`** / **`Constraint`** from **`src/modules/operation_mode.py`**:
+Same scenario with operation modes from **`src/modules/operation_mode.py`**:
 
 ```bash
-uv run python src/simulations/drs_crusher_2_tickwise_with_utils.py
-uv run python src/simulations/drs_crusher_2_tickwise_with_utils.py --plot
+uv run python -m src.run --file src/simulations/drs_crusher_2_tickwise_with_operation_mode.py
+uv run python -m src.run --file src/simulations/drs_crusher_2_tickwise_with_operation_mode.py --viz
+uv run python -m src.run --file src/simulations/drs_crusher_2_tickwise_with_operation_mode.py --plot
 ```
 
-These examples typically write **`output/sim.log`**. With **`visualize=True`**, a new UUID **`output/*.pdf`** is produced per run.
+Threshold-crossing reference runs:
+
+```bash
+uv run python -m src.run --file src/simulations/drs_crusher_3_threshold_crossing.py
+uv run python -m src.run --file src/simulations/drs_crusher_4_threshold_crossing_intended_design.py
+uv run python -m src.run --file src/simulations/drs_crusher_4_threshold_crossing_intended_design.py --viz
+```
+
+`src.run` also supports **`--function`** to select a specific callable, and logging controls such
+as **`--log-level`**, **`--log-file`**, and **`--console`**.
+
+These examples typically write **`output/sim.log`**. Add **`--viz`** to produce a UUID **`output/*.pdf`** for that run.

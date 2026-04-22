@@ -48,7 +48,7 @@ class Engine:
     def __init__(
         self,
         time_limit: float | None = None,
-        visualize: bool = True,
+        visualize: bool = False,
         output_dir: str = "output",
     ):
         _max = os.getenv("MAX_SIM_TIME")

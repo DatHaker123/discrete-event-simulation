@@ -10,14 +10,12 @@ for p in (_src, _root):
     if str(p) not in sys.path:
         sys.path.insert(0, str(p))
 
-import logging
 from src.core import DelayComponent, Engine, Event, SinkComponent, SourceComponent
-from src.modules import get_records_as_printable_string, setup_logging
 from src.modules.utils import UniformDistribution
 
 
-def simple_simulation():
-    engine = Engine(visualize=True)
+def simple_simulation(visualize: bool = False) -> Engine:
+    engine = Engine(visualize=visualize)
     engine.add_startup_event(Event(0, "source", "Generate", {}, {}))
     source = SourceComponent("source", lambda _ctx: {"value": "token"}, UniformDistribution(0, 10))
 
@@ -30,10 +28,10 @@ def simple_simulation():
     engine.add_component(delay)
     engine.add_component(sink)
     engine.run()
-    return get_records_as_printable_string(engine.get_results())
+    return engine
 
 
 if __name__ == "__main__":
-    setup_logging(level=logging.INFO, log_file="sim.log", output_dir="output")
-    results = simple_simulation()
-    print(results)
+    from src.run import run_cli
+
+    raise SystemExit(run_cli(sys.argv[1:], default_file=__file__))

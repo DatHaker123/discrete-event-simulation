@@ -15,10 +15,9 @@
 #   so consecutive duplicate timestamps in raw ``state_history`` are normal.)
 #
 # Tune: SOURCE_INTERVAL, RAW_BATCH, SLOW_CRUSH, FAST_CRUSH, HIGH_STOCK, LOW_STOCK, TIME_LIMIT
-# Run as script: ``python -m src.simulations.drs_crusher --plot`` for stockpile figure (UUID-named PNG under output/).
+# Run as script: use ``--viz`` for PDF queue frames and ``--plot`` for stockpile figure (UUID-named PNG under output/).
 
 import sys
-import uuid
 from pathlib import Path
 
 _root = Path(__file__).resolve().parent.parent.parent
@@ -27,7 +26,6 @@ for p in (_src, _root):
     if str(p) not in sys.path:
         sys.path.insert(0, str(p))  # so ``from src.core`` / ``from src.modules`` work when run as script
 
-import logging
 from typing import Any
 
 from src.core import (
@@ -38,12 +36,6 @@ from src.core import (
     SimulationContext,
     SourceComponent,
     TransformerComponent,
-)
-from src.modules import (
-    get_records_as_printable_string,
-    plot_time_series,
-    setup_logging,
-    state_key_series_from_history,
 )
 from src.modules.utils import ConstantDistribution, UniformDistribution
 
@@ -155,30 +147,6 @@ def drs_crusher_simulation(visualize: bool = False) -> Engine:
 
 
 if __name__ == "__main__":
-    setup_logging(level=logging.INFO, log_file="sim.log", output_dir="output")
-    engine = drs_crusher_simulation(visualize=False)
-    components = engine.get_results()
-    print(get_records_as_printable_string(components))
-    crusher = next(c for c in components if c.component_id == "crusher")
-    series = state_key_series_from_history(crusher, "stockpile")
-    print("\n# stockpile vs time (t, stockpile) — sample for plotting")
-    for t, s in series[:25]:
-        print(f"{t:.4f}\t{s:.4f}")
-    if len(series) > 25:
-        print("...")
-    for t, s in series[-12:]:
-        print(f"{t:.4f}\t{s:.4f}")
+    from src.run import run_cli
 
-    if "--plot" in sys.argv:
-        out = _root / "output" / f"drs_crusher_stockpile_{uuid.uuid4()}.png"
-        plot_time_series(
-            series,
-            x_label="time",
-            y_label="stockpile (tonnes)",
-            title="Crusher stockpile vs time",
-            line_label="stockpile",
-            horizontal_lines=((HIGH_STOCK, "high"), (LOW_STOCK, "low")),
-            save_path=out,
-            show=True,
-        )
-        print(f"\nSaved figure to {out}")
+    raise SystemExit(run_cli(sys.argv[1:], default_file=__file__))
