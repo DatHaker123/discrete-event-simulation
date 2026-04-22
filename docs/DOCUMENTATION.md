@@ -74,6 +74,7 @@ discrete-event-simulation/
         ├── simple2.py                # source → delay → transformer → sink
         ├── drs_crusher_1_tickwise.py
         ├── drs_crusher_2_tickwise_with_operation_mode.py
+        ├── drs_crusher_5_tickwise_two_stage_with_operation_mode.py
         ├── drs_crusher_3_threshold_crossing.py
         └── drs_crusher_4_threshold_crossing_intended_design.py
 ```
@@ -324,7 +325,7 @@ uv run python -m src.run --file src/simulations/simple.py
 uv run python -m src.run --file src/simulations/simple2.py
 ```
 
-DRS stockpile / crusher (inline thresholds). Pass **`--viz`** to generate visualization PDF frames and **`--plot`** to write a UUID-named PNG under **`output/`**:
+DRS stockpile / crusher (inline thresholds). Pass **`--viz`** to generate visualization PDF frames and **`--plot`** to write a UUID-named PNG under **`output/`**. For two-stage models, `--plot` also accepts an optional target (`crusher` or `grinder`):
 
 ```bash
 uv run python -m src.run --file src/simulations/drs_crusher_1_tickwise.py
@@ -338,6 +339,12 @@ Same scenario with operation modes from **`src/modules/operation_mode.py`**:
 uv run python -m src.run --file src/simulations/drs_crusher_2_tickwise_with_operation_mode.py
 uv run python -m src.run --file src/simulations/drs_crusher_2_tickwise_with_operation_mode.py --viz
 uv run python -m src.run --file src/simulations/drs_crusher_2_tickwise_with_operation_mode.py --plot
+
+# Two-stage variant: source -> crusher -> grinder -> sink (plot focuses on grinder stockpile)
+uv run python -m src.run --file drs_crusher_5_tickwise_two_stage_with_operation_mode.py
+uv run python -m src.run --file drs_crusher_5_tickwise_two_stage_with_operation_mode.py --plot
+uv run python -m src.run --file drs_crusher_5_tickwise_two_stage_with_operation_mode.py --plot crusher
+uv run python -m src.run --file drs_crusher_5_tickwise_two_stage_with_operation_mode.py --plot grinder
 ```
 
 Threshold-crossing reference runs:

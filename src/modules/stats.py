@@ -36,6 +36,8 @@ def plot_time_series(
     title: str = "",
     line_label: str | None = "series",
     horizontal_lines: Sequence[tuple[float, str]] | None = None,
+    vertical_lines: Sequence[float] | None = None,
+    vertical_bars: Sequence[tuple[float, float, float, str, str | None]] | None = None,
     save_path: Path | str | None = None,
     show: bool = True,
     figsize: tuple[float, float] = (8, 3),
@@ -57,6 +59,39 @@ def plot_time_series(
         for i, (y, hlabel) in enumerate(horizontal_lines):
             ax.axhline(
                 y, color=h_colors[i % len(h_colors)], ls="--", lw=0.9, alpha=0.85, label=hlabel
+            )
+    if vertical_lines:
+        seen: set[float] = set()
+        first = True
+        for x in vertical_lines:
+            xv = float(x)
+            if xv in seen:
+                continue
+            seen.add(xv)
+            ax.axvline(
+                xv,
+                color="red",
+                ls="-",
+                lw=0.8,
+                alpha=0.35,
+                label="mode change" if first else None,
+            )
+            first = False
+    if vertical_bars:
+        used_labels: set[str] = set()
+        for x, y_min, y_max, color, label in vertical_bars:
+            lbl: str | None = None
+            if label is not None and label not in used_labels:
+                lbl = label
+                used_labels.add(label)
+            ax.vlines(
+                float(x),
+                float(y_min),
+                float(y_max),
+                colors=color,
+                linewidth=1.1,
+                alpha=0.65,
+                label=lbl,
             )
     ax.set_xlabel(x_label)
     ax.set_ylabel(y_label)
