@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from abc import ABC, abstractmethod
+from copy import deepcopy
 from typing import Any, Callable
 
 from .context import SimulationContext
@@ -122,7 +123,7 @@ class SingleIOComponent(Component):
         event = ctx.event
         current_time = engine.get_current_time()
         self.log.info("Default Departure event received", extra={"sim_time": current_time})
-        arrival_event = Event(current_time, self.output.component_id, "Arrival", event.entity, {})
+        arrival_event = Event(current_time, self.output.component_id, "Arrival", deepcopy(event.entity), {})
         engine.add_event(arrival_event)
 
 
@@ -177,7 +178,7 @@ class SourceComponent(SingleIOComponent):
             next_generate_event = Event(next_time, self.component_id, "Generate", {}, {})
             engine.add_event(next_generate_event)
 
-        departure_event = Event(current_time, self.component_id, "Departure", entity, {})
+        departure_event = Event(current_time, self.component_id, "Departure", deepcopy(entity), {})
         engine.add_event(departure_event)
 
 
@@ -204,7 +205,7 @@ class SinkComponent(SingleIOComponent):
         event = ctx.event
         current_time = engine.get_current_time()
         self.log.info("Arrival event received, adding to records", extra={"sim_time": current_time})
-        self.records.append((current_time, event.entity))
+        self.records.append((current_time, deepcopy(event.entity)))
 
 
 class DelayComponent(SingleIOComponent):
@@ -246,8 +247,9 @@ class DelayComponent(SingleIOComponent):
         self.log.info("Arrival event received", extra={"sim_time": current_time, "delay": delay, "count": self.count})
 
         next_time = current_time + delay
-        self.content.append((next_time, event.entity))
-        next_departure_event = Event(next_time, self.component_id, "Departure", event.entity, {})
+        delayed_entity = deepcopy(event.entity)
+        self.content.append((next_time, delayed_entity))
+        next_departure_event = Event(next_time, self.component_id, "Departure", delayed_entity, {})
         engine.add_event(next_departure_event)
 
     def handle_departure_delay(self, ctx: SimulationContext) -> None:
@@ -310,7 +312,7 @@ class AssertComponent(SingleIOComponent):
             )
             self.fail_handler(ctx)
         else:
-            arrival_event = Event(current_time, self.output.component_id, "Arrival", event.entity, {})
+            arrival_event = Event(current_time, self.output.component_id, "Arrival", deepcopy(event.entity), {})
             engine.add_event(arrival_event)
 
 

@@ -1,10 +1,13 @@
 from __future__ import annotations
 
-from typing import Callable, Literal
+import os
+from copy import deepcopy
+from typing import Any, Callable, Literal
 
-from src.core.components import SourceComponent
+from src.core.components import SingleIOComponent, SourceComponent
 from src.core.context import SimulationContext
 from src.core.events import Entity, Event
+from src.modules.operation_mode import HasOperationModeManager
 from src.modules.utils import Distribution
 
 
@@ -46,6 +49,106 @@ def get_linear_predictor(
     return _predict
 
 
+def get_advancer_linear_inventory_state(
+    *,
+    level_key: str,
+    in_rate_key: str,
+    out_rate_key: str,
+    time_key: str,
+    min_level: float = 0.0,
+) -> Callable[[SimulationContext], None]:
+    """
+    Build an advancer for one inventory-like state variable under piecewise-constant rates.
+
+    The returned callable updates ``ctx.component.state`` in-place:
+    - ``state[level_key]`` integrates with derivative ``in_rate - out_rate``
+    - ``state[time_key]`` is set to current simulation time
+    """
+    def _advance(ctx: SimulationContext) -> None:
+        st = ctx.component.state
+        now = ctx.engine.get_current_time()
+        last_t = float(st[time_key])
+        dt = max(0.0, now - last_t)
+        if dt <= 0.0:
+            st[time_key] = now
+            return
+
+        in_rate = float(st[in_rate_key])
+        out_rate = float(st[out_rate_key])
+        next_level = float(st[level_key]) + (in_rate - out_rate) * dt
+        st[level_key] = max(min_level, next_level)
+        st[time_key] = now
+
+    return _advance
+
+
+def get_default_rate_update_handler(
+    *,
+    level_key: str,
+    in_rate_key: str,
+    out_rate_key: str,
+    advance_state: Callable[[SimulationContext], None],
+    incoming_rate_entity_key: str = "rate_tph",
+    mode_capacity_key: str = "crush_rate_tph",
+) -> Callable[[SimulationContext], None]:
+    """
+    Build a default one-dimensional linear ``RateUpdate``/``ModeChange`` handler. Intended for
+    use with ``RateSchedulerComponent``.
+
+    Lifecycle:
+    1) advance state to ``now`` (via ``advance_state`` policy hook)
+    2) apply incoming upstream rate update (for ``RateUpdate`` events)
+    3) resolve mode, compute internal processing rate, write it to state
+    4) emit self ``Departure`` (the component forwards it as downstream ``RateUpdate``)
+    5) predict/schedule next local ``ModeChange`` and invalidate old projections
+    """
+
+    eps_time = float(os.getenv("EPS_TIME", "1e-9"))
+
+    def _handler(ctx: SimulationContext) -> None:
+        engine = ctx.engine
+        comp = ctx.component
+        st = comp.state
+        now = engine.get_current_time()
+
+        advance_state(ctx)
+
+        if ctx.event.type == "RateUpdate" and incoming_rate_entity_key in ctx.event.entity:
+            st[in_rate_key] = float(ctx.event.entity[incoming_rate_entity_key])
+
+        selected_mode = comp.update_current_mode(ctx)
+        if selected_mode is None:
+            raise RuntimeError("No operational mode selected for component.")
+
+        capacity_obj = selected_mode.data[mode_capacity_key]
+        sampled_capacity = capacity_obj.sample() if hasattr(capacity_obj, "sample") else capacity_obj
+        capacity = float(sampled_capacity)
+        # Internal processing rate is mode-driven (not directly tied to incoming boundary rate).
+        out_rate = capacity
+        st[out_rate_key] = out_rate
+
+        payload: dict[str, Any] = {
+            "rate_tph": out_rate,
+            "mode": selected_mode.name,
+            "name": deepcopy(ctx.event.entity.get("name", "")),
+            level_key: float(st[level_key]),
+            in_rate_key: float(st[in_rate_key]),
+        }
+
+        delta = {level_key: float(st[in_rate_key]) - float(st[out_rate_key])}
+        next_mode, next_t = comp.get_next_mode_change(ctx, delta)
+        if next_mode is not None and next_t is not None:
+            if next_t <= now + eps_time:
+                next_t = now + eps_time
+            if engine.time_limit is None or next_t < engine.time_limit:
+                comp.advance_version()
+                engine.add_event(Event(next_t, comp.component_id, "ModeChange", {}, {}))
+
+        # Enqueue departure after any version bump so it stays valid.
+        engine.add_event(Event(now, comp.component_id, "Departure", payload, {}))
+
+    return _handler
+
 
 class RateSourceComponent(SourceComponent):
     """
@@ -68,7 +171,7 @@ class RateSourceComponent(SourceComponent):
 
     def forward_departure_as_update(self, ctx: SimulationContext) -> None:
         t = ctx.engine.get_current_time()
-        payload = dict(ctx.event.entity)
+        payload = deepcopy(ctx.event.entity)
         ctx.engine.add_event(
             Event(
                 t,
@@ -78,3 +181,60 @@ class RateSourceComponent(SourceComponent):
                 {},
             )
         )
+
+
+class RateSchedulerComponent(SingleIOComponent, HasOperationModeManager):
+    """
+    Scheduler component for threshold-crossing control logic.
+
+    Event flow:
+    ``RateUpdate`` / ``ModeChange`` (in) -> self ``Departure`` -> downstream ``RateUpdate`` (out)
+
+    The provided handler is responsible for updating state, resolving mode, scheduling next
+    ``ModeChange``, and emitting self ``Departure`` with the current output payload.
+    """
+
+    def __init__(
+        self,
+        component_id: str,
+        scheduler_handler: Callable[[SimulationContext], None],
+        track_state: bool = False,
+    ):
+        SingleIOComponent.__init__(self, component_id, "RateScheduler", track_state=track_state)
+        HasOperationModeManager.__init__(self)
+        self.set_handleable_event("RateUpdate", scheduler_handler)
+        self.set_handleable_event("ModeChange", scheduler_handler)
+        self.set_handleable_event("Departure", self.handle_rate_departure)
+
+    def handle_rate_departure(self, ctx: SimulationContext) -> None:
+        now = ctx.engine.get_current_time()
+        ctx.engine.add_event(Event(now, self.output.component_id, "RateUpdate", deepcopy(ctx.event.entity), {}))
+
+
+class RateTransformerComponent(SingleIOComponent):
+    """
+    Transform-only component for control/rate streams that preserves two-step event flow.
+
+    Event flow:
+    ``RateUpdate`` (in) -> self ``Departure`` -> downstream ``RateUpdate`` (out)
+    """
+
+    def __init__(
+        self,
+        component_id: str,
+        transform_function: Callable[[SimulationContext], Entity],
+        track_state: bool = False,
+    ):
+        super().__init__(component_id, "RateTransformer", track_state=track_state)
+        self.transform_function = transform_function
+        self.set_handleable_event("RateUpdate", self.handle_rate_update)
+        self.set_handleable_event("Departure", self.handle_rate_departure)
+
+    def handle_rate_update(self, ctx: SimulationContext) -> None:
+        now = ctx.engine.get_current_time()
+        transformed_entity = deepcopy(self.transform_function(ctx))
+        ctx.engine.add_event(Event(now, self.component_id, "Departure", transformed_entity, {}))
+
+    def handle_rate_departure(self, ctx: SimulationContext) -> None:
+        now = ctx.engine.get_current_time()
+        ctx.engine.add_event(Event(now, self.output.component_id, "RateUpdate", deepcopy(ctx.event.entity), {}))

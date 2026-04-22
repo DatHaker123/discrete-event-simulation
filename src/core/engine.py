@@ -113,9 +113,30 @@ class Engine:
             visualizer = Visualizer(*self.get_graph(), output_dir=self.output_dir)
 
         FRAME_EVENT_TYPES = frozenset({"Departure", "Arrival", "Generate"})
+        CONTROL_EVENT_TYPES = frozenset({"RateUpdate", "ModeChange"})
+        last_control_frame_time: float | None = None
+        control_frames_seen_at_time: set[tuple[str, str]] = set()
+
+        def _should_render_frame(e: Event | None) -> bool:
+            nonlocal last_control_frame_time, control_frames_seen_at_time
+
+            if e is None:
+                return True
+            if e.type in FRAME_EVENT_TYPES:
+                return True
+            if e.type in CONTROL_EVENT_TYPES:
+                if last_control_frame_time is None or e.time != last_control_frame_time:
+                    last_control_frame_time = e.time
+                    control_frames_seen_at_time = set()
+                key = (e.handler_id, e.type)
+                if key in control_frames_seen_at_time:
+                    return False
+                control_frames_seen_at_time.add(key)
+                return True
+            return False
 
         def _step(t: float, e: Event | None, q: list) -> None:
-            if visualizer is not None and (e is None or e.type in FRAME_EVENT_TYPES):
+            if visualizer is not None and _should_render_frame(e):
                 visualizer.add_frame(t, e, list(q))
             if on_step is not None:
                 on_step(t, e, q)

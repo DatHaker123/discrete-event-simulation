@@ -16,6 +16,10 @@ Event types used by the framework/simulations:
   to propagate a new effective rate (instead of material arrivals).
   Conceptually, think of this as an ``Arrival`` for a control/rate stream: it is still
   an inbound update into the receiving component, just over "rate state" rather than inventory.
+- ``ModeChange``:
+  Control-style event usually self-scheduled by a component to apply a predicted mode
+  transition time. In threshold-crossing models this is commonly paired with ``RateUpdate``:
+  ``RateUpdate`` updates boundary/input rate, while ``ModeChange`` applies local control changes.
 - Custom event types:
   Allowed and encouraged for model-specific behavior (for example, maintenance, failures,
   control commands, or domain-specific transitions).
@@ -53,11 +57,14 @@ def priority_for_event_type(event_type: str) -> int:
 
     Current built-in mapping:
     - ``RateUpdate`` -> 1 
+    - ``ModeChange`` -> 1
     - ``Generate`` -> 2
     - ``Arrival`` -> 3
     - ``Departure`` -> 4
     """
     if event_type == "RateUpdate":
+        return 1
+    elif event_type == "ModeChange":
         return 1
     elif event_type == "Generate":
         return 2
