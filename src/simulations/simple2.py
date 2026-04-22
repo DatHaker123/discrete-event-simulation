@@ -26,7 +26,8 @@ from src.modules.utils import UniformDistribution
 
 
 def simple_simulation():
-    engine = Engine(startup_events=[Event(0, "source", "Generate", {}, {})], visualize=False)
+    engine = Engine(visualize=False)
+    engine.add_startup_event(Event(0, "source", "Generate", {}, {}))
     engine.simulation_variables["token_count"] = 0
 
     def token_generator(_engine: Engine, _event: Event, _comp: Component) -> Entity:

@@ -4,7 +4,7 @@ This project is a **discrete simulation** framework in two layers:
 
 1. **Core = discrete-event simulation (DES)** — The runtime is built around a **future-event list**: simulation time jumps from event to event; components **schedule** and **handle** typed events. There is no fixed time step; state changes only when an event is processed. That is the **base program**: engine, queue, `Event`, handlers `(engine, event, component)`, wiring, sinks, delays, transformers, and sources that emit entities on a schedule you define in event logic.
 
-2. **Discrete-rate simulation (DRS) features on top** — When a model **pre-schedules many future instants** (e.g. a source that always queues the next `Generate` at each tick), the queue can hold work that later becomes invalid (threshold crossings, regime changes). Each **component** owns a monotonic **`version`** and **`advance_version()`**; **`Event.version`** records the target component’s version at enqueue time. That lets you **invalidate already-queued events for that handler** without canceling them individually. Optional helpers in `src/modules/DRS_utils.py` (mode rules) support DRS-style modelling but are not required for plain DES.
+2. **Discrete-rate simulation (DRS) features on top** — When a model **pre-schedules many future instants** (e.g. a source that always queues the next `Generate` at each tick), the queue can hold work that later becomes invalid (threshold crossings, regime changes). Each **component** owns a monotonic **`version`** and **`advance_version()`**; **`Event.version`** records the target component’s version at enqueue time. That lets you **invalidate already-queued events for that handler** without canceling them individually. Optional helpers in `src/modules/operation_mode.py` (mode rules) support DRS-style modelling but are not required for plain DES.
 
 **What this entails in practice**
 
@@ -65,13 +65,13 @@ discrete-event-simulation/
     │   ├── logger.py
     │   ├── stats.py
     │   ├── utils.py
-    │   ├── DRS_utils.py    # ModeResolver, ModeRule, Constraint (optional DRS modelling)
+    │   ├── operation_mode.py    # ModeResolver, ModeRule, Constraint (optional DRS modelling)
     │   └── visualization.py
     └── simulations/
         ├── simple.py                 # source → delay → sink
         ├── simple2.py                # source → delay → transformer → sink
         ├── drs_crusher_1_tickwise.py # stockpile + two-mode crusher (thresholds in code)
-        └── drs_crusher_2_tickwise_with_utils.py  # same idea; mode rules via DRS_utils
+        └── drs_crusher_2_tickwise_with_utils.py  # same idea; mode rules via operation_mode
 ```
 
 ---
@@ -163,7 +163,7 @@ Default handlers are **public methods** (e.g. **`SourceComponent.default_handle_
 
 ---
 
-## Mode rules (`src/modules/DRS_utils.py`)
+## Mode rules (`src/modules/operation_mode.py`)
 
 Optional helpers for **if/then mode** logic (e.g. crusher fast vs slow) without ad-hoc nesting — **DRS-oriented** modelling sugar, not required for DES:
 
@@ -277,7 +277,7 @@ uv run python src/simulations/drs_crusher_1_tickwise.py
 uv run python src/simulations/drs_crusher_1_tickwise.py --plot
 ```
 
-Same scenario with **`ModeResolver`** / **`ModeRule`** / **`Constraint`** from **`src/modules/DRS_utils.py`**:
+Same scenario with **`ModeResolver`** / **`ModeRule`** / **`Constraint`** from **`src/modules/operation_mode.py`**:
 
 ```bash
 uv run python src/simulations/drs_crusher_2_tickwise_with_utils.py

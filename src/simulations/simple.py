@@ -17,7 +17,8 @@ from src.modules.utils import UniformDistribution
 
 
 def simple_simulation():
-    engine = Engine(startup_events=[Event(0, "source", "Generate", {}, {})], visualize=True)
+    engine = Engine(visualize=True)
+    engine.add_startup_event(Event(0, "source", "Generate", {}, {}))
     source = SourceComponent("source", lambda _e, _evt, _comp: {"value": "token"}, UniformDistribution(0, 10))
 
     delay = DelayComponent("delay", UniformDistribution(0, 10), capacity=1000)

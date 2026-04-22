@@ -48,7 +48,6 @@ class Engine:
     def __init__(
         self,
         time_limit: float | None = None,
-        startup_events: list[Event] | None = None,
         visualize: bool = True,
         output_dir: str = "output",
     ):
@@ -58,11 +57,14 @@ class Engine:
         self._event_queue = EventQueue()
         self._current_time = 0.0
         self.log = get_logger("engine")
-        self.startup_events = startup_events if startup_events is not None else []
+        self._startup_events: list[Event] = []
         self.visualize = visualize
         self.output_dir = output_dir
         #: User-defined simulation state (counters, parameters, etc.); populate in your model setup.
         self.simulation_variables: dict[str, Any] = {}
+
+    def add_startup_event(self, event: Event) -> None:
+        self._startup_events.append(event)
 
     def add_event(self, event: Event):
         target = self._components.get(event.handler_id)
@@ -97,7 +99,7 @@ class Engine:
         if self.time_limit is not None:
             self.add_event(Event(self.time_limit, "End", "End", {}, {}))
 
-        for event in self.startup_events:
+        for event in self._startup_events:
             self.add_event(event)
 
         visualizer = None

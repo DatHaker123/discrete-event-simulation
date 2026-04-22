@@ -125,10 +125,10 @@ def drs_crusher_simulation(visualize: bool = False) -> Engine:
     ``state_history`` and sink records.
     """
     engine = Engine(
-        startup_events=[Event(0, "source", "Generate", {}, {})],
         visualize=visualize,
         time_limit=TIME_LIMIT,
     )
+    engine.add_startup_event(Event(0, "source", "Generate", {}, {}))
 
     source = SourceComponent(
         "source",

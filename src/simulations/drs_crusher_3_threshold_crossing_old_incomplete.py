@@ -1,10 +1,13 @@
-## DRS-style stockpile: uniform hopper rate (one announcement) -> crusher (mode rules via DRS_utils) -> sink
+## DRS-style stockpile: uniform hopper rate (one announcement) -> crusher (mode rules via operation_mode) -> sink
 #
 # Source is a ``SourceComponent`` with ``interval=None``: only external ``Generate`` events drive it.
 # The engine queues one ``Generate`` at t=0 whose ``entity`` carries the hopper rate; no further
 # Generates are scheduled. The crusher stores
 # the hopper discharge rate in ``state["source_rate_tonnes_per_unit_time"]`` and advances feed/crush
 # on self-scheduled ``HopperTick`` events. Based on drs_crusher_2; deterministic.
+
+# Due to structural changes in the operation_mode module, this simulation is no longer valid.
+# It is kept here for reference.
 
 import sys
 import uuid
@@ -34,7 +37,7 @@ from src.modules import (
     setup_logging,
     state_key_series_from_history,
 )
-from src.modules.DRS_utils import OperationModeConstraint, OperationModeResolver, OperationModeRule, OperationMode
+from src.modules.operation_mode import OperationModeConstraint, OperationModeResolver, OperationModeRule, OperationMode
 from src.modules.utils import ConstantDistribution
 
 
@@ -117,10 +120,10 @@ def drs_crusher_simulation(visualize: bool = False) -> tuple[]:
     hopper_rate_entity: Entity = {"source_rate_tonnes_per_unit_time": SOURCE_RATE_TONNES_PER_UNIT_TIME}
 
     engine = Engine(
-        startup_events=[Event(0, "source", "Generate", {}, {})],
         visualize=visualize,
         time_limit=TIME_LIMIT,
     )
+    engine.add_startup_event(Event(0, "source", "Generate", {}, {}))
 
     # --- Source (driven only by startup_events Generate; interval=None) ---
     hopper_source = SourceComponent(
@@ -140,7 +143,7 @@ def drs_crusher_simulation(visualize: bool = False) -> tuple[]:
     hopper_source.set_handleable_event("Departure", rate_update_handler)
 
 
-    # --- Mode rules (DRS_utils) ---
+    # --- Mode rules (operation_mode) ---
     mode_resolver: OperationModeResolver[OperationMode] = OperationModeResolver()
 
     stockpile_low = OperationModeConstraint(
@@ -211,10 +214,24 @@ def drs_crusher_simulation(visualize: bool = False) -> tuple[]:
     )
     crusher.state.update(INITIAL_CRUSHER_STATE)
 
-    def handle_arrival_rate_update(_engine: Engine, event: Event, component: Component) -> None:
+    def handle_rate_update(_engine: Engine, event: Event, component: Component) -> None:
         st = component.state
         st["source_rate_tonnes_per_unit_time"] = float(event.entity.get("arrival_rate_tonnes_per_unit_time", 0.0))
-    crusher.set_handleable_event("ArrivalRateUpdate", handle_arrival_rate_update)
+
+        current_time = _engine.get_current_time()
+        variable = st["stockpile"]
+        rate_of_change = st["source_rate_tonnes_per_unit_time"]
+
+        mode_resolver_internal = mode_resolver
+
+        remaining_capacity = st["source_rate_tonnes_per_unit_time"] - st["stockpile"]
+        if remaining_capacity > 0:
+            next_change_time = engine.get_current_time() + remaining_capacity / st["source_rate_tonnes_per_unit_time"]
+            engine.add_event(Event(next_change_time, component.component_id, "RateUpdate", {
+                "arrival_rate_tonnes_per_unit_time": st["source_rate_tonnes_per_unit_time"]
+            }, {}))
+
+    crusher.set_handleable_event("ArrivalRateUpdate", handle_rate_update)
 
     # --- Sink ---
     sink = SinkComponent("sink", track_state=False)
