@@ -1,98 +1,50 @@
 <!doctype html>
 <html lang="en">
   <head>
-    <meta charset="utf-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <title>Simulation Designer Prototype</title>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Simulation Designer (React Prototype)</title>
     <style>
       :root {
-        --bg: #f6f7fb;
+        --bg: #f4f6fb;
         --panel: #ffffff;
-        --border: #d8dce6;
-        --text: #252a34;
-        --muted: #6b7485;
-        --port: #9aa2b1;
-        --node: #e9edf6;
-        --node-border: #adb7cb;
-        --wire: #6f7ea6;
+        --border: #d5dced;
+        --muted: #70798c;
+        --text: #26324a;
+        --wire: #5b6f98;
       }
 
-      * {
-        box-sizing: border-box;
-      }
-
-      html,
+      * { box-sizing: border-box; }
       body {
         margin: 0;
-        height: 100%;
-        font-family: Arial, sans-serif;
-        color: var(--text);
+        font-family: "Segoe UI", Tahoma, Geneva, Verdana, sans-serif;
         background: var(--bg);
+        color: var(--text);
       }
 
       .app {
-        --left-w: 240px;
-        --right-w: 0px;
+        height: 100vh;
         display: grid;
-        grid-template-columns: var(--left-w) 1fr var(--right-w);
-        height: 100%;
+        grid-template-columns: 250px 1fr 0;
       }
-
       .app.props-open {
-        --right-w: 280px;
+        grid-template-columns: 250px 1fr 300px;
       }
 
-      .sidebar {
-        border-right: 1px solid var(--border);
+      .sidebar, .props-panel {
         background: var(--panel);
+        border-right: 1px solid var(--border);
         padding: 14px;
         overflow: hidden;
       }
-
-      .sidebar-shell {
-        display: flex;
-        flex-direction: column;
-        height: 100%;
+      .props-panel {
+        border-right: 0;
+        border-left: 1px solid var(--border);
       }
-
-      .sidebar-header {
-        display: flex;
-        align-items: center;
-        justify-content: flex-start;
-        margin-bottom: 10px;
-      }
-
-      .sidebar h2 {
-        margin: 0;
-        font-size: 17px;
-      }
-
-      .sidebar-content {
-        flex: 1;
-      }
-
-      .preview-btn {
-        width: 100%;
-        margin-top: 12px;
-        border: 1px solid var(--border);
-        border-radius: 8px;
-        background: #eef2fb;
-        color: #39435a;
-        font-size: 13px;
-        padding: 9px 10px;
-        cursor: pointer;
-      }
-
-      .preview-btn:hover {
-        background: #e2e8f7;
-      }
-
-      .hint {
-        font-size: 12px;
-        line-height: 1.4;
-        color: var(--muted);
-        margin: 0 0 14px;
-      }
+      .sidebar-shell { display: flex; flex-direction: column; height: 100%; }
+      .sidebar h2, .props-panel h2 { margin: 0 0 10px; font-size: 17px; }
+      .sidebar-content { flex: 1; }
+      .hint { font-size: 12px; line-height: 1.4; color: var(--muted); margin: 0 0 14px; }
 
       .palette-item {
         padding: 10px 12px;
@@ -102,333 +54,235 @@
         background: #f8faff;
         cursor: grab;
         user-select: none;
-        font-size: 14px;
       }
+      .palette-item:active { cursor: grabbing; }
 
-      .palette-item:active {
-        cursor: grabbing;
+      .simulation-btn, .preview-btn {
+        width: 100%;
+        border-radius: 8px;
+        font-size: 13px;
+        padding: 9px 10px;
+        cursor: pointer;
       }
+      .simulation-btn {
+        margin-top: 10px;
+        border: 1px solid #cdd8ed;
+        background: #f0f5ff;
+        color: #304b78;
+      }
+      .simulation-btn:hover { background: #e3edff; }
+      .preview-btn {
+        margin-top: 10px;
+        border: 1px solid var(--border);
+        background: #eef2fb;
+        color: #39435a;
+      }
+      .preview-btn:hover { background: #e2e8f7; }
 
       .canvas-wrap {
         position: relative;
         overflow: hidden;
+        background:
+          linear-gradient(#eef2fb 1px, transparent 1px) 0 0 / 26px 26px,
+          linear-gradient(90deg, #eef2fb 1px, transparent 1px) 0 0 / 26px 26px,
+          #f9fbff;
       }
-
-      .canvas {
-        position: absolute;
-        inset: 0;
-      }
-
       .drop-guide {
         position: absolute;
-        left: 14px;
         top: 12px;
+        left: 14px;
         font-size: 12px;
         color: var(--muted);
-        background: rgba(255, 255, 255, 0.85);
-        border: 1px solid var(--border);
-        border-radius: 999px;
-        padding: 4px 10px;
-        pointer-events: none;
+        z-index: 2;
       }
-
-      svg.wires {
+      .wires {
         position: absolute;
         inset: 0;
         width: 100%;
         height: 100%;
         pointer-events: none;
       }
+      .canvas {
+        position: absolute;
+        inset: 0;
+      }
 
       .node {
         position: absolute;
         width: 148px;
-        min-height: 64px;
-        border: 1px solid var(--node-border);
-        background: var(--node);
+        min-height: 84px;
+        background: #fff;
+        border: 1px solid #ced6e8;
         border-radius: 10px;
-        box-shadow: 0 2px 5px rgba(35, 48, 80, 0.12);
+        padding: 10px 10px 8px;
+        box-shadow: 0 2px 6px rgba(40, 62, 110, 0.08);
         user-select: none;
       }
-
-      .node.node-selected {
-        border-color: #6578a5;
-        box-shadow: 0 0 0 2px rgba(101, 120, 165, 0.22), 0 2px 5px rgba(35, 48, 80, 0.12);
+      .node-selected {
+        border-color: #7c92c4;
+        box-shadow: 0 0 0 2px rgba(115, 142, 198, 0.22), 0 2px 8px rgba(40, 62, 110, 0.1);
       }
-
+      .node-title { font-size: 13px; font-weight: 600; }
+      .node-sub { margin-top: 3px; font-size: 11px; color: var(--muted); }
       .node-delete {
         position: absolute;
-        right: 6px;
         top: 5px;
-        width: 18px;
-        height: 18px;
-        border: 1px solid #9ba6bc;
-        border-radius: 999px;
-        background: #f3f5fb;
-        color: #5f697f;
-        font-size: 12px;
-        line-height: 14px;
-        cursor: pointer;
-        padding: 0;
-      }
-
-      .node-delete:hover {
-        background: #e5eaf7;
-      }
-
-      .node-title {
-        font-size: 14px;
-        font-weight: 600;
-        text-align: center;
-        padding: 10px 8px 8px;
-        border-bottom: 1px solid rgba(120, 132, 162, 0.3);
-      }
-
-      .node-sub {
-        text-align: center;
-        color: var(--muted);
+        right: 5px;
+        width: 16px;
+        height: 16px;
+        border-radius: 50%;
+        border: 1px solid #c8d2e7;
+        background: #f8faff;
+        color: #6b7791;
         font-size: 11px;
-        padding: 6px 8px 10px;
-      }
-
-      .ports {
-        position: absolute;
-        inset: 0;
-        pointer-events: none;
+        line-height: 1;
+        cursor: pointer;
       }
 
       .port {
-        pointer-events: auto;
         position: absolute;
-        width: 11px;
-        height: 11px;
-        border-radius: 999px;
-        background: var(--port);
-        border: 1px solid #7a8392;
+        width: 10px;
+        height: 10px;
+        border-radius: 50%;
+        background: #b4bccb;
+        border: 1px solid #7f8798;
         cursor: crosshair;
       }
-
-      .port.in {
-        left: -6px;
-      }
-
-      .port.out {
-        right: -6px;
-      }
+      .port.in { left: -5px; }
+      .port.out { right: -5px; }
 
       .conn-handle {
         position: absolute;
-        width: 11px;
-        height: 11px;
-        border-radius: 999px;
-        border: 1px solid #7f8798;
-        background: #a6adbb;
+        width: 12px;
+        height: 12px;
+        border-radius: 50%;
+        border: 1px solid #afb7ca;
+        background: #eef2fb;
+        color: #5a677f;
+        font-size: 10px;
+        line-height: 10px;
+        text-align: center;
         cursor: pointer;
-        color: #2e3442;
-        font-size: 9px;
-        line-height: 9px;
-        text-align: center;
-        padding: 0;
-        display: flex;
-        align-items: center;
-        justify-content: center;
-        user-select: none;
+        z-index: 5;
       }
 
-      .props-panel {
-        border-left: 1px solid var(--border);
-        background: var(--panel);
-        padding: 14px;
-        overflow: hidden;
-        opacity: 0;
-        pointer-events: none;
-      }
-
-      .app.props-open .props-panel {
-        opacity: 1;
-        pointer-events: auto;
-      }
-
-      .props-panel h2 {
-        margin: 0 0 10px;
-        font-size: 17px;
-      }
-
-      .props-label {
-        font-size: 12px;
-        color: var(--muted);
-        margin: 0 0 8px;
-      }
-
-      .props-content {
-        display: grid;
-        gap: 10px;
-      }
-
-      .props-empty {
-        min-height: 90px;
-        border: 1px dashed #c5ccd9;
-        border-radius: 8px;
-        background: #fafbff;
-        color: #818a9a;
-        font-size: 12px;
-        display: flex;
-        align-items: center;
-        justify-content: center;
-        text-align: center;
-        padding: 10px;
-      }
-
-      .props-row {
-        display: grid;
-        gap: 5px;
-      }
-
-      .props-row label {
-        font-size: 12px;
-        color: var(--muted);
-      }
-
-      .props-input,
-      .props-select,
-      .props-textarea {
+      .props-label { margin: 0 0 12px; color: #4d5973; font-size: 12px; }
+      .props-content { overflow: auto; max-height: calc(100vh - 90px); padding-right: 4px; }
+      .props-empty { color: var(--muted); font-size: 12px; }
+      .props-row { display: grid; gap: 5px; margin-bottom: 10px; }
+      .props-row label { font-size: 12px; color: #4f5a74; }
+      .props-input, .props-select, .props-textarea {
         width: 100%;
-        border: 1px solid #c6cedc;
-        border-radius: 6px;
-        background: #fff;
-        color: #2f3440;
-        font-size: 13px;
-        padding: 6px 8px;
-      }
-
-      .props-textarea {
-        min-height: 66px;
-        resize: vertical;
-      }
-
-      .props-checkbox {
-        display: flex;
-        align-items: center;
-        gap: 8px;
-        font-size: 13px;
-        color: #3c4352;
-      }
-
-      .props-divider {
-        border-top: 1px solid #e0e5ef;
-        margin-top: 2px;
-        padding-top: 8px;
-        color: #667084;
+        border: 1px solid #cdd5e7;
+        border-radius: 7px;
+        padding: 7px 8px;
         font-size: 12px;
-        font-weight: 600;
+      }
+      .props-textarea { min-height: 64px; resize: vertical; }
+      .props-checkbox { display: flex; gap: 8px; align-items: center; font-size: 12px; margin-bottom: 10px; }
+      .props-divider {
+        margin: 10px 0 8px;
+        padding-top: 8px;
+        border-top: 1px solid #e3e8f3;
+        font-size: 11px;
+        color: #6a758f;
+        text-transform: uppercase;
       }
 
       .preview-modal {
         position: fixed;
         inset: 0;
-        background: rgba(22, 27, 36, 0.48);
+        background: rgba(20, 28, 45, 0.45);
         display: none;
         align-items: center;
         justify-content: center;
-        z-index: 1000;
+        padding: 18px;
+        z-index: 90;
       }
-
-      .preview-modal.open {
-        display: flex;
-      }
-
+      .preview-modal.open { display: flex; }
       .preview-card {
-        width: min(860px, calc(100vw - 48px));
-        height: min(560px, calc(100vh - 48px));
-        border-radius: 10px;
-        border: 1px solid #c9d0de;
-        background: #ffffff;
-        box-shadow: 0 14px 40px rgba(25, 36, 62, 0.25);
-        display: flex;
-        flex-direction: column;
+        width: min(980px, 100%);
+        max-height: 92vh;
+        background: #fff;
+        border-radius: 12px;
+        border: 1px solid #d4dced;
+        display: grid;
+        grid-template-rows: auto 1fr auto auto;
+        overflow: hidden;
       }
-
       .preview-header {
         display: flex;
         justify-content: space-between;
         align-items: center;
-        padding: 10px 12px;
-        border-bottom: 1px solid #e1e6f0;
+        padding: 11px 14px;
+        border-bottom: 1px solid #e4e9f4;
       }
-
-      .preview-title {
-        margin: 0;
-        font-size: 15px;
-        font-weight: 600;
-      }
-
+      .preview-title { margin: 0; font-size: 15px; }
       .preview-close {
-        width: 24px;
-        height: 24px;
-        border: 1px solid #c9d0de;
-        border-radius: 6px;
-        background: #f4f7fd;
-        color: #4a5264;
+        border: 1px solid #ccd5e9;
+        background: #f8faff;
+        border-radius: 7px;
+        width: 28px;
+        height: 28px;
         cursor: pointer;
       }
-
-      .preview-body {
-        flex: 1;
-        display: flex;
-        align-items: center;
-        justify-content: center;
-        color: #8a93a6;
-        font-size: 13px;
+      .preview-body { overflow: auto; background: #f8faff; }
+      .preview-code {
+        margin: 0;
+        padding: 16px;
+        font-size: 12px;
+        line-height: 1.4;
+        font-family: Consolas, "Courier New", monospace;
       }
+      .preview-warnings { border-top: 1px solid #e4e9f4; background: #fff; max-height: 180px; overflow: auto; }
+      .warn-item { display: grid; grid-template-columns: auto 1fr; gap: 8px; padding: 8px 12px; border-bottom: 1px solid #eef2fa; }
+      .warn-badge {
+        text-transform: uppercase;
+        font-size: 10px;
+        font-weight: 700;
+        border-radius: 8px;
+        padding: 2px 6px;
+      }
+      .warn-badge.error { background: #ffe4e4; color: #973f3f; }
+      .warn-badge.warning { background: #fff1db; color: #946526; }
+      .warn-badge.info { background: #e8f0ff; color: #35518a; }
+      .warn-text { font-size: 12px; color: #39445f; }
+      .preview-footer {
+        border-top: 1px solid #e4e9f4;
+        padding: 10px 12px;
+        display: grid;
+        grid-template-columns: auto 1fr auto;
+        gap: 8px;
+        align-items: center;
+      }
+      .warnings-tab, .export-btn {
+        border: 1px solid #cad4e8;
+        background: #f7f9ff;
+        color: #40517a;
+        border-radius: 7px;
+        font-size: 12px;
+        padding: 7px 10px;
+        cursor: pointer;
+      }
+      .warnings-tab.active { background: #e8efff; }
+      .export-filename {
+        border: 1px solid #cad4e8;
+        border-radius: 7px;
+        padding: 7px 9px;
+        font-size: 12px;
+      }
+      .export-status { grid-column: 1 / -1; font-size: 11px; color: #6a7488; margin-top: 2px; }
+      .export-status.error { color: #a43a3a; }
     </style>
   </head>
   <body>
-    <div class="app" id="appShell">
-      <aside class="sidebar">
-        <div class="sidebar-shell">
-          <div class="sidebar-header">
-            <h2>Components</h2>
-          </div>
-          <div class="sidebar-content">
-            <p class="hint">
-              Drag components into the canvas. Drag nodes to reposition. Drag a gray port circle to another compatible
-              port to create a connection.
-            </p>
-            <div class="palette-item" draggable="true" data-type="Source">Source</div>
-            <div class="palette-item" draggable="true" data-type="Delay">Delay</div>
-            <div class="palette-item" draggable="true" data-type="Transformer">Transformer</div>
-            <div class="palette-item" draggable="true" data-type="Sink">Sink</div>
-          </div>
-          <button class="preview-btn" id="previewBtn" type="button">Preview</button>
-        </div>
-      </aside>
+    <div id="root"></div>
+    <script src="https://unpkg.com/react@18/umd/react.development.js"></script>
+    <script src="https://unpkg.com/react-dom@18/umd/react-dom.development.js"></script>
+    <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+    <script type="text/babel">
+      const { useEffect, useMemo, useRef, useState } = React;
 
-      <main class="canvas-wrap">
-        <div class="drop-guide">Drop components here</div>
-        <svg class="wires" id="wires"></svg>
-        <div class="canvas" id="canvas"></div>
-      </main>
-
-      <aside class="props-panel">
-        <h2>Properties</h2>
-        <p class="props-label" id="propsLabel">No component selected</p>
-        <div class="props-content" id="propsContent">
-          <div class="props-empty">Select a component to edit properties.</div>
-        </div>
-      </aside>
-    </div>
-
-    <div class="preview-modal" id="previewModal" aria-hidden="true">
-      <div class="preview-card" role="dialog" aria-modal="true" aria-label="Generated code preview">
-        <div class="preview-header">
-          <h3 class="preview-title">Generated Code Preview</h3>
-          <button class="preview-close" id="previewCloseBtn" type="button">x</button>
-        </div>
-        <div class="preview-body">(Preview placeholder: code generation not implemented yet.)</div>
-      </div>
-    </div>
-
-    <script>
       const BASIC_TYPES = {
         Source: { inputs: 0, outputs: 1 },
         Delay: { inputs: 1, outputs: 1 },
@@ -436,26 +290,11 @@
         Sink: { inputs: 1, outputs: 0 },
       };
 
-      const canvas = document.getElementById("canvas");
-      const wiresSvg = document.getElementById("wires");
-      const appShell = document.getElementById("appShell");
-      const previewBtn = document.getElementById("previewBtn");
-      const previewModal = document.getElementById("previewModal");
-      const previewCloseBtn = document.getElementById("previewCloseBtn");
-      const propsLabel = document.getElementById("propsLabel");
-      const propsContent = document.getElementById("propsContent");
-      const nodes = new Map();
-      const connections = [];
-
-      let nodeCounter = 1;
-      let draggingNode = null;
-      let dragOffsetX = 0;
-      let dragOffsetY = 0;
-      let activeWireDrag = null;
-      let draggingCanvas = false;
-      let panLastX = 0;
-      let panLastY = 0;
-      let selectedNodeId = null;
+      const NODE_W = 148;
+      const NODE_H = 84;
+      const HANDLE_DB_NAME = "simulation_designer_handles";
+      const HANDLE_STORE = "fs";
+      const HANDLE_KEY = "simulations_dir";
 
       function getDefaultProperties(type, id) {
         const common = {
@@ -464,506 +303,598 @@
           trackState: false,
           notes: "",
         };
-        if (type === "Source") {
-          return {
-            ...common,
-            outputEntityName: "entity",
-            intervalMode: "constant",
-            intervalA: "1.0",
-            intervalB: "",
-            startupGenerate: true,
-          };
-        }
-        if (type === "Delay") {
-          return {
-            ...common,
-            delayMode: "constant",
-            delayA: "1.0",
-            delayB: "",
-            capacity: "1000",
-          };
-        }
-        if (type === "Transformer") {
-          return {
-            ...common,
-            transformLabel: "default_transform",
-            passThroughField: "value",
-            rateHint: "",
-          };
-        }
-        if (type === "Sink") {
-          return {
-            ...common,
-            storeRecords: true,
-            collectStats: true,
-          };
-        }
+        if (type === "Source") return { ...common, outputEntityName: "entity", intervalMode: "constant", intervalA: "1.0", intervalB: "", startupGenerate: true };
+        if (type === "Delay") return { ...common, delayMode: "constant", delayA: "1.0", delayB: "", capacity: "1000" };
+        if (type === "Transformer") return { ...common, transformLabel: "default_transform", passThroughField: "value", rateHint: "" };
+        if (type === "Sink") return { ...common, storeRecords: true, collectStats: true };
         return common;
       }
 
-      previewBtn.addEventListener("click", () => {
-        previewModal.classList.add("open");
-        previewModal.setAttribute("aria-hidden", "false");
-      });
-      previewCloseBtn.addEventListener("click", () => {
-        previewModal.classList.remove("open");
-        previewModal.setAttribute("aria-hidden", "true");
-      });
-      previewModal.addEventListener("click", (ev) => {
-        if (ev.target === previewModal) {
-          previewModal.classList.remove("open");
-          previewModal.setAttribute("aria-hidden", "true");
-        }
-      });
-
-      document.querySelectorAll(".palette-item").forEach((item) => {
-        item.addEventListener("dragstart", (ev) => {
-          ev.dataTransfer.setData("text/plain", item.dataset.type);
-        });
-      });
-
-      canvas.addEventListener("dragover", (ev) => {
-        ev.preventDefault();
-      });
-
-      canvas.addEventListener("drop", (ev) => {
-        ev.preventDefault();
-        const type = ev.dataTransfer.getData("text/plain");
-        if (!BASIC_TYPES[type]) return;
-        const p = toCanvasPoint(ev.clientX, ev.clientY);
-        createNode(type, p.x - 74, p.y - 32);
-      });
-
-      canvas.addEventListener("pointerdown", (ev) => {
-        if (ev.target !== canvas) return;
-        setSelectedNode(null);
-        draggingCanvas = true;
-        panLastX = ev.clientX;
-        panLastY = ev.clientY;
-      });
-
-      document.addEventListener("pointermove", (ev) => {
-        if (draggingNode) {
-          const p = toCanvasPoint(ev.clientX, ev.clientY);
-          draggingNode.x = p.x - dragOffsetX;
-          draggingNode.y = p.y - dragOffsetY;
-          updateNodePosition(draggingNode);
-          updateConnectionsForNode(draggingNode.id);
-        }
-
-        if (draggingCanvas && !draggingNode && !activeWireDrag) {
-          const dx = ev.clientX - panLastX;
-          const dy = ev.clientY - panLastY;
-          panLastX = ev.clientX;
-          panLastY = ev.clientY;
-          nodes.forEach((node) => {
-            node.x += dx;
-            node.y += dy;
-            updateNodePosition(node);
-          });
-          connections.forEach(updateConnection);
-        }
-
-        if (activeWireDrag) {
-          const p = toCanvasPoint(ev.clientX, ev.clientY);
-          updateLine(activeWireDrag.tempLine, activeWireDrag.start.x, activeWireDrag.start.y, p.x, p.y);
-        }
-      });
-
-      document.addEventListener("pointerup", () => {
-        draggingNode = null;
-        draggingCanvas = false;
-      });
-
-      function toCanvasPoint(clientX, clientY) {
-        const rect = canvas.getBoundingClientRect();
-        return { x: clientX - rect.left, y: clientY - rect.top };
+      function pyQuote(raw) { const s = raw == null ? "" : String(raw); return `'${s.replace(/\\/g, "\\\\").replace(/'/g, "\\'")}'`; }
+      function sanitizePyName(raw) {
+        const base = String(raw || "component").toLowerCase().replace(/[^a-z0-9_]/g, "_").replace(/^[^a-z_]+/, "_").replace(/_+/g, "_").replace(/^_+|_+$/g, "");
+        return base || "component";
+      }
+      function boolPy(v) { return v ? "True" : "False"; }
+      function toNumberOr(raw, fallback) { const n = Number(raw); return Number.isFinite(n) ? String(n) : String(fallback); }
+      function distExpr(mode, a, b) {
+        if (mode === "uniform") return `UniformDistribution(${toNumberOr(a, 0.0)}, ${toNumberOr(b, 1.0)})`;
+        if (mode === "exponential") return `ExponentialDistribution(${toNumberOr(a, 1.0)})`;
+        if (mode === "none") return "None";
+        return `ConstantDistribution(${toNumberOr(a, 1.0)})`;
       }
 
-      function createNode(type, x, y) {
-        const spec = BASIC_TYPES[type];
-        const id = `node-${nodeCounter++}`;
-        const nodeEl = document.createElement("div");
-        nodeEl.className = "node";
-        nodeEl.dataset.nodeId = id;
+      function getPortPoint(node, side, idx) {
+        const total = side === "in" ? node.inputs : node.outputs;
+        const step = total > 0 ? 100 / (total + 1) : 0;
+        const topPct = step * (idx + 1);
+        const x = node.x + (side === "in" ? 0 : NODE_W);
+        const y = node.y + (NODE_H * topPct) / 100;
+        return { x, y };
+      }
 
-        nodeEl.innerHTML = `
-          <button class="node-delete" title="Delete component">x</button>
-          <div class="node-title">${type}</div>
-          <div class="node-sub">${spec.inputs} in / ${spec.outputs} out</div>
-          <div class="ports"></div>
-        `;
-
-        const data = {
-          id,
-          type,
-          x,
-          y,
-          inputs: spec.inputs,
-          outputs: spec.outputs,
-          element: nodeEl,
-          properties: getDefaultProperties(type, id),
-        };
-        nodes.set(id, data);
-        canvas.appendChild(nodeEl);
-        updateNodePosition(data);
-        createPorts(data);
-
-        nodeEl.querySelector(".node-delete").addEventListener("pointerdown", (ev) => {
-          ev.stopPropagation();
-        });
-        nodeEl.querySelector(".node-delete").addEventListener("click", (ev) => {
-          ev.stopPropagation();
-          removeNode(data.id);
+      function SimulationDesignerApp() {
+        const [nodes, setNodes] = useState([]);
+        const [connections, setConnections] = useState([]);
+        const [selection, setSelection] = useState({ kind: "none", nodeId: null });
+        const [previewOpen, setPreviewOpen] = useState(false);
+        const [warningsOpen, setWarningsOpen] = useState(false);
+        const [exportFilename, setExportFilename] = useState("generated_simulation.py");
+        const [exportStatus, setExportStatus] = useState({ text: "", error: false });
+        const [simulationProperties, setSimulationProperties] = useState({
+          name: "generated_simulation",
+          functionName: "generated_simulation",
+          timeLimit: "",
+          visualizeDefault: false,
+          outputDir: "output",
+          logFile: "sim.log",
+          notes: "",
         });
 
-        nodeEl.addEventListener("pointerdown", (ev) => {
-          if (ev.target.classList.contains("port")) return;
-          if (ev.target.classList.contains("node-delete")) return;
-          ev.stopPropagation();
-          setSelectedNode(data.id);
-          draggingNode = data;
-          const p = toCanvasPoint(ev.clientX, ev.clientY);
-          dragOffsetX = p.x - data.x;
-          dragOffsetY = p.y - data.y;
-        });
-      }
+        const canvasRef = useRef(null);
+        const nodeCounterRef = useRef(1);
+        const dragNodeRef = useRef(null);
+        const dragOffsetRef = useRef({ x: 0, y: 0 });
+        const panRef = useRef({ active: false, x: 0, y: 0 });
+        const wireDragRef = useRef(null);
+        const simulationsHandleRef = useRef(null);
 
-      function createPorts(node) {
-        const portsEl = node.element.querySelector(".ports");
-        const inStep = node.inputs > 0 ? 100 / (node.inputs + 1) : 0;
-        const outStep = node.outputs > 0 ? 100 / (node.outputs + 1) : 0;
+        const nodeById = useMemo(() => {
+          const m = new Map();
+          nodes.forEach((n) => m.set(n.id, n));
+          return m;
+        }, [nodes]);
 
-        for (let i = 0; i < node.inputs; i++) {
-          const port = document.createElement("div");
-          port.className = "port in";
-          port.style.top = `${inStep * (i + 1)}%`;
-          port.dataset.nodeId = node.id;
-          port.dataset.side = "in";
-          port.dataset.index = String(i);
-          hookPortDrag(port);
-          portsEl.appendChild(port);
-        }
+        const code = useMemo(() => buildPythonCode(nodes, connections, simulationProperties), [nodes, connections, simulationProperties]);
+        const issues = useMemo(() => validateDesign(nodes, connections), [nodes, connections]);
+        const warnCounts = useMemo(() => {
+          const counts = { error: 0, warning: 0, info: 0 };
+          issues.forEach((i) => { if (counts[i.severity] != null) counts[i.severity] += 1; });
+          return counts;
+        }, [issues]);
 
-        for (let i = 0; i < node.outputs; i++) {
-          const port = document.createElement("div");
-          port.className = "port out";
-          port.style.top = `${outStep * (i + 1)}%`;
-          port.dataset.nodeId = node.id;
-          port.dataset.side = "out";
-          port.dataset.index = String(i);
-          hookPortDrag(port);
-          portsEl.appendChild(port);
-        }
-      }
-
-      function hookPortDrag(portEl) {
-        portEl.addEventListener("pointerdown", (ev) => {
-          ev.stopPropagation();
-          const startPort = portEl;
-          const startPt = getPortCenter(startPort);
-          const tempLine = createLine(startPt.x, startPt.y, startPt.x, startPt.y, "#7f88a5", "6,4");
-          activeWireDrag = {
-            startPort,
-            start: startPt,
-            tempLine,
-          };
-        });
-
-        portEl.addEventListener("pointerup", (ev) => {
-          if (!activeWireDrag) return;
-          const endPort = portEl;
-          const startPort = activeWireDrag.startPort;
-          cleanupTempLine();
-
-          if (!isValidConnection(startPort, endPort)) return;
-          createConnection(startPort, endPort);
-          ev.stopPropagation();
-        });
-      }
-
-      document.addEventListener("pointerup", () => {
-        if (activeWireDrag) cleanupTempLine();
-      });
-
-      function isValidConnection(a, b) {
-        if (!a || !b || a === b) return false;
-        if (a.dataset.nodeId === b.dataset.nodeId) return false;
-        return a.dataset.side !== b.dataset.side;
-      }
-
-      function normalizePorts(a, b) {
-        if (a.dataset.side === "out") {
-          return { outPort: a, inPort: b };
-        }
-        return { outPort: b, inPort: a };
-      }
-
-      function connectionExists(outPort, inPort) {
-        return connections.some((c) => c.outKey === keyOfPort(outPort) && c.inKey === keyOfPort(inPort));
-      }
-
-      function createConnection(a, b) {
-        const normalized = normalizePorts(a, b);
-        if (connectionExists(normalized.outPort, normalized.inPort)) return;
-
-        const line = createLine(0, 0, 0, 0, "var(--wire)");
-        const handle = document.createElement("div");
-        handle.className = "conn-handle";
-        handle.title = "Delete connection";
-        handle.textContent = "x";
-        canvas.appendChild(handle);
-        const record = {
-          outKey: keyOfPort(normalized.outPort),
-          inKey: keyOfPort(normalized.inPort),
-          outNode: normalized.outPort.dataset.nodeId,
-          inNode: normalized.inPort.dataset.nodeId,
-          element: line,
-          handle,
-        };
-        handle.addEventListener("pointerdown", (ev) => ev.stopPropagation());
-        handle.addEventListener("click", (ev) => {
-          ev.stopPropagation();
-          removeConnection(record);
-        });
-        connections.push(record);
-        updateConnection(record);
-      }
-
-      function keyOfPort(portEl) {
-        return `${portEl.dataset.nodeId}:${portEl.dataset.side}:${portEl.dataset.index}`;
-      }
-
-      function getPortElementByKey(key) {
-        const [nodeId, side, index] = key.split(":");
-        return canvas.querySelector(`.port[data-node-id="${nodeId}"][data-side="${side}"][data-index="${index}"]`);
-      }
-
-      function updateConnection(conn) {
-        const outPort = getPortElementByKey(conn.outKey);
-        const inPort = getPortElementByKey(conn.inKey);
-        if (!outPort || !inPort) return;
-        const p1 = getPortCenter(outPort);
-        const p2 = getPortCenter(inPort);
-        updateLine(conn.element, p1.x, p1.y, p2.x, p2.y);
-        const mx = (p1.x + p2.x) / 2;
-        const my = (p1.y + p2.y) / 2;
-        conn.handle.style.left = `${mx - 5.5}px`;
-        conn.handle.style.top = `${my - 5.5}px`;
-      }
-
-      function updateConnectionsForNode(nodeId) {
-        connections.forEach((conn) => {
-          if (conn.outNode === nodeId || conn.inNode === nodeId) {
-            updateConnection(conn);
+        useEffect(() => {
+          async function restore() {
+            if (typeof window.showDirectoryPicker !== "function") return;
+            const restored = await loadSimulationsDirHandle();
+            if (restored && (await ensureWritePermission(restored))) simulationsHandleRef.current = restored;
           }
-        });
-      }
+          restore();
+        }, []);
 
-      function getPortCenter(portEl) {
-        const pRect = portEl.getBoundingClientRect();
-        const cRect = canvas.getBoundingClientRect();
-        return {
-          x: pRect.left - cRect.left + pRect.width / 2,
-          y: pRect.top - cRect.top + pRect.height / 2,
-        };
-      }
-
-      function createLine(x1, y1, x2, y2, stroke, dashArray) {
-        const line = document.createElementNS("http://www.w3.org/2000/svg", "line");
-        line.setAttribute("x1", String(x1));
-        line.setAttribute("y1", String(y1));
-        line.setAttribute("x2", String(x2));
-        line.setAttribute("y2", String(y2));
-        line.setAttribute("stroke", stroke);
-        line.setAttribute("stroke-width", "2");
-        if (dashArray) line.setAttribute("stroke-dasharray", dashArray);
-        wiresSvg.appendChild(line);
-        return line;
-      }
-
-      function removeConnection(conn) {
-        const idx = connections.indexOf(conn);
-        if (idx !== -1) {
-          connections.splice(idx, 1);
-        }
-        conn.element.remove();
-        conn.handle.remove();
-      }
-
-      function removeNode(nodeId) {
-        const node = nodes.get(nodeId);
-        if (!node) return;
-        for (let i = connections.length - 1; i >= 0; i--) {
-          const conn = connections[i];
-          if (conn.outNode === nodeId || conn.inNode === nodeId) {
-            removeConnection(conn);
-          }
-        }
-        node.element.remove();
-        nodes.delete(nodeId);
-        if (selectedNodeId === nodeId) {
-          setSelectedNode(null);
-        }
-      }
-
-      function renderPropertiesEditor(node) {
-        propsContent.innerHTML = "";
-        if (!node) {
-          const empty = document.createElement("div");
-          empty.className = "props-empty";
-          empty.textContent = "Select a component to edit properties.";
-          propsContent.appendChild(empty);
-          return;
-        }
-
-        const p = node.properties || (node.properties = getDefaultProperties(node.type, node.id));
-
-        function addTextField(label, key, opts = {}) {
-          const row = document.createElement("div");
-          row.className = "props-row";
-          const lab = document.createElement("label");
-          lab.textContent = label;
-          const input = document.createElement(opts.multiline ? "textarea" : "input");
-          input.className = opts.multiline ? "props-textarea" : "props-input";
-          if (!opts.multiline) input.type = opts.type || "text";
-          input.value = p[key] ?? "";
-          input.addEventListener("input", () => {
-            p[key] = input.value;
-            if (key === "name") {
-              node.element.querySelector(".node-title").textContent = p[key] || node.type;
+        useEffect(() => {
+          function onMove(ev) {
+            if (dragNodeRef.current) {
+              const nodeId = dragNodeRef.current;
+              const rect = canvasRef.current.getBoundingClientRect();
+              const x = ev.clientX - rect.left - dragOffsetRef.current.x;
+              const y = ev.clientY - rect.top - dragOffsetRef.current.y;
+              setNodes((prev) => prev.map((n) => (n.id === nodeId ? { ...n, x, y } : n)));
+            } else if (panRef.current.active && !wireDragRef.current) {
+              const dx = ev.clientX - panRef.current.x;
+              const dy = ev.clientY - panRef.current.y;
+              panRef.current.x = ev.clientX;
+              panRef.current.y = ev.clientY;
+              setNodes((prev) => prev.map((n) => ({ ...n, x: n.x + dx, y: n.y + dy })));
             }
-          });
-          row.appendChild(lab);
-          row.appendChild(input);
-          propsContent.appendChild(row);
-        }
-
-        function addSelectField(label, key, options) {
-          const row = document.createElement("div");
-          row.className = "props-row";
-          const lab = document.createElement("label");
-          lab.textContent = label;
-          const select = document.createElement("select");
-          select.className = "props-select";
-          options.forEach((opt) => {
-            const o = document.createElement("option");
-            o.value = opt.value;
-            o.textContent = opt.label;
-            select.appendChild(o);
-          });
-          select.value = p[key] ?? options[0].value;
-          select.addEventListener("change", () => {
-            p[key] = select.value;
-            renderPropertiesEditor(node);
-          });
-          row.appendChild(lab);
-          row.appendChild(select);
-          propsContent.appendChild(row);
-        }
-
-        function addCheckbox(label, key) {
-          const wrap = document.createElement("label");
-          wrap.className = "props-checkbox";
-          const input = document.createElement("input");
-          input.type = "checkbox";
-          input.checked = Boolean(p[key]);
-          input.addEventListener("change", () => {
-            p[key] = input.checked;
-          });
-          const text = document.createElement("span");
-          text.textContent = label;
-          wrap.appendChild(input);
-          wrap.appendChild(text);
-          propsContent.appendChild(wrap);
-        }
-
-        function addDivider(title) {
-          const divider = document.createElement("div");
-          divider.className = "props-divider";
-          divider.textContent = title;
-          propsContent.appendChild(divider);
-        }
-
-        addTextField("Name", "name");
-        addTextField("Component ID", "componentId");
-        addCheckbox("Track state history", "trackState");
-        addTextField("Notes", "notes", { multiline: true });
-
-        addDivider(`${node.type} settings`);
-
-        if (node.type === "Source") {
-          addTextField("Output entity name", "outputEntityName");
-          addSelectField("Interval distribution", "intervalMode", [
-            { value: "constant", label: "Constant" },
-            { value: "uniform", label: "Uniform" },
-            { value: "none", label: "None (external only)" },
-          ]);
-          if (p.intervalMode !== "none") {
-            addTextField("Interval parameter A", "intervalA", { type: "number" });
+            if (wireDragRef.current) {
+              const rect = canvasRef.current.getBoundingClientRect();
+              wireDragRef.current = { ...wireDragRef.current, x: ev.clientX - rect.left, y: ev.clientY - rect.top };
+              setNodes((prev) => [...prev]);
+            }
           }
-          if (p.intervalMode === "uniform") {
-            addTextField("Interval parameter B", "intervalB", { type: "number" });
+          function onUp() {
+            dragNodeRef.current = null;
+            panRef.current.active = false;
+            if (wireDragRef.current) {
+              wireDragRef.current = null;
+              setNodes((prev) => [...prev]);
+            }
           }
-          addCheckbox("Startup generate event", "startupGenerate");
-        } else if (node.type === "Delay") {
-          addSelectField("Delay distribution", "delayMode", [
-            { value: "constant", label: "Constant" },
-            { value: "uniform", label: "Uniform" },
-            { value: "exponential", label: "Exponential" },
-          ]);
-          addTextField("Delay parameter A", "delayA", { type: "number" });
-          if (p.delayMode === "uniform") {
-            addTextField("Delay parameter B", "delayB", { type: "number" });
-          }
-          addTextField("Capacity", "capacity", { type: "number" });
-        } else if (node.type === "Transformer") {
-          addTextField("Transform label", "transformLabel");
-          addTextField("Pass-through field", "passThroughField");
-          addTextField("Rate hint (optional)", "rateHint", { type: "number" });
-        } else if (node.type === "Sink") {
-          addCheckbox("Store arrival records", "storeRecords");
-          addCheckbox("Collect stats", "collectStats");
+          window.addEventListener("pointermove", onMove);
+          window.addEventListener("pointerup", onUp);
+          return () => {
+            window.removeEventListener("pointermove", onMove);
+            window.removeEventListener("pointerup", onUp);
+          };
+        }, []);
+
+        function addNode(type, clientX, clientY) {
+          const rect = canvasRef.current.getBoundingClientRect();
+          const id = `node-${nodeCounterRef.current++}`;
+          const spec = BASIC_TYPES[type];
+          setNodes((prev) => [...prev, { id, type, x: clientX - rect.left - 74, y: clientY - rect.top - 32, inputs: spec.inputs, outputs: spec.outputs, properties: getDefaultProperties(type, id) }]);
         }
+
+        function onCanvasDrop(ev) {
+          ev.preventDefault();
+          const type = ev.dataTransfer.getData("text/plain");
+          if (!BASIC_TYPES[type]) return;
+          addNode(type, ev.clientX, ev.clientY);
+        }
+
+        function onCanvasPointerDown(ev) {
+          if (ev.target !== canvasRef.current) return;
+          setSelection({ kind: "none", nodeId: null });
+          panRef.current = { active: true, x: ev.clientX, y: ev.clientY };
+        }
+
+        function removeNode(nodeId) {
+          setConnections((prev) => prev.filter((c) => c.outNode !== nodeId && c.inNode !== nodeId));
+          setNodes((prev) => prev.filter((n) => n.id !== nodeId));
+          if (selection.kind === "node" && selection.nodeId === nodeId) setSelection({ kind: "none", nodeId: null });
+        }
+
+        function startNodeDrag(nodeId, ev) {
+          if (ev.target.classList.contains("port") || ev.target.classList.contains("node-delete")) return;
+          ev.stopPropagation();
+          setSelection({ kind: "node", nodeId });
+          const rect = canvasRef.current.getBoundingClientRect();
+          const node = nodeById.get(nodeId);
+          dragNodeRef.current = nodeId;
+          dragOffsetRef.current = { x: ev.clientX - rect.left - node.x, y: ev.clientY - rect.top - node.y };
+        }
+
+        function startWire(nodeId, side, index, ev) {
+          ev.stopPropagation();
+          const node = nodeById.get(nodeId);
+          const start = getPortPoint(node, side, index);
+          wireDragRef.current = { nodeId, side, index, x: start.x, y: start.y };
+          setNodes((prev) => [...prev]);
+        }
+
+        function endWire(nodeId, side, index, ev) {
+          ev.stopPropagation();
+          const active = wireDragRef.current;
+          if (!active) return;
+          if (active.nodeId === nodeId) { wireDragRef.current = null; setNodes((p) => [...p]); return; }
+          if (active.side === side) { wireDragRef.current = null; setNodes((p) => [...p]); return; }
+          const out = active.side === "out" ? { nodeId: active.nodeId, index: active.index } : { nodeId, index };
+          const inn = active.side === "in" ? { nodeId: active.nodeId, index: active.index } : { nodeId, index };
+          setConnections((prev) => {
+            if (prev.some((c) => c.outNode === out.nodeId && c.outIndex === out.index && c.inNode === inn.nodeId && c.inIndex === inn.index)) return prev;
+            return [...prev, { id: `conn-${Date.now()}-${Math.random()}`, outNode: out.nodeId, outIndex: out.index, inNode: inn.nodeId, inIndex: inn.index }];
+          });
+          wireDragRef.current = null;
+          setNodes((p) => [...p]);
+        }
+
+        function updateNodeProps(nodeId, patch) {
+          setNodes((prev) => prev.map((n) => (n.id === nodeId ? { ...n, properties: { ...n.properties, ...patch } } : n)));
+        }
+
+        async function exportGeneratedCode() {
+          const filename = sanitizeFilename(exportFilename);
+          setExportFilename(filename);
+          const codeText = code;
+          if (typeof window.showDirectoryPicker === "function") {
+            try {
+              const handle = await ensureSimulationsHandle(simulationsHandleRef);
+              if (!handle) throw new Error("No writable directory handle available.");
+              if (handle.name !== "simulations") setExportStatus({ text: `Folder selected: '${handle.name}'. Expected 'simulations', but export will continue.`, error: false });
+              const fileHandle = await handle.getFileHandle(filename, { create: true });
+              const writable = await fileHandle.createWritable();
+              await writable.write(codeText);
+              await writable.close();
+              setExportStatus({ text: `Exported to ${handle.name}/${filename}`, error: false });
+              return;
+            } catch (err) {
+              if (err && err.name === "AbortError") { setExportStatus({ text: "Export cancelled.", error: false }); return; }
+            }
+          }
+          try {
+            const blob = new Blob([codeText], { type: "text/plain;charset=utf-8" });
+            const url = URL.createObjectURL(blob);
+            const a = document.createElement("a");
+            a.href = url;
+            a.download = filename;
+            document.body.appendChild(a);
+            a.click();
+            a.remove();
+            URL.revokeObjectURL(url);
+            setExportStatus({ text: `Downloaded ${filename}. Move it to src/simulations.`, error: false });
+          } catch (_err) {
+            setExportStatus({ text: "Export failed.", error: true });
+          }
+        }
+
+        const selectedNode = selection.kind === "node" ? nodeById.get(selection.nodeId) : null;
+        const appClass = selection.kind === "none" ? "app" : "app props-open";
+        const activeWire = wireDragRef.current;
+
+        return (
+          <>
+            <div className={appClass}>
+              <aside className="sidebar">
+                <div className="sidebar-shell">
+                  <h2>Components</h2>
+                  <div className="sidebar-content">
+                    <p className="hint">Drag components into the canvas. Drag nodes to reposition. Drag a gray port circle to another compatible port to create a connection.</p>
+                    {Object.keys(BASIC_TYPES).map((type) => (
+                      <div key={type} className="palette-item" draggable onDragStart={(ev) => ev.dataTransfer.setData("text/plain", type)}>{type}</div>
+                    ))}
+                  </div>
+                  <button className="simulation-btn" onClick={() => setSelection({ kind: "simulation", nodeId: null })}>Simulation</button>
+                  <button className="preview-btn" onClick={() => { setPreviewOpen(true); setWarningsOpen(false); setExportStatus({ text: "", error: false }); }}>Preview</button>
+                </div>
+              </aside>
+
+              <main className="canvas-wrap">
+                <div className="drop-guide">Drop components here</div>
+                <svg className="wires">
+                  {connections.map((c) => {
+                    const outNode = nodeById.get(c.outNode);
+                    const inNode = nodeById.get(c.inNode);
+                    if (!outNode || !inNode) return null;
+                    const p1 = getPortPoint(outNode, "out", c.outIndex);
+                    const p2 = getPortPoint(inNode, "in", c.inIndex);
+                    return <line key={c.id} x1={p1.x} y1={p1.y} x2={p2.x} y2={p2.y} stroke="var(--wire)" strokeWidth="2" />;
+                  })}
+                  {activeWire ? (() => {
+                    const node = nodeById.get(activeWire.nodeId);
+                    if (!node) return null;
+                    const start = getPortPoint(node, activeWire.side, activeWire.index);
+                    return <line x1={start.x} y1={start.y} x2={activeWire.x} y2={activeWire.y} stroke="#7f88a5" strokeWidth="2" strokeDasharray="6,4" />;
+                  })() : null}
+                </svg>
+                <div className="canvas" ref={canvasRef} onDragOver={(ev) => ev.preventDefault()} onDrop={onCanvasDrop} onPointerDown={onCanvasPointerDown}>
+                  {connections.map((c) => {
+                    const outNode = nodeById.get(c.outNode);
+                    const inNode = nodeById.get(c.inNode);
+                    if (!outNode || !inNode) return null;
+                    const p1 = getPortPoint(outNode, "out", c.outIndex);
+                    const p2 = getPortPoint(inNode, "in", c.inIndex);
+                    const mx = (p1.x + p2.x) / 2;
+                    const my = (p1.y + p2.y) / 2;
+                    return <button key={`h-${c.id}`} className="conn-handle" style={{ left: `${mx - 6}px`, top: `${my - 6}px` }} onPointerDown={(ev) => ev.stopPropagation()} onClick={(ev) => { ev.stopPropagation(); setConnections((prev) => prev.filter((x) => x.id !== c.id)); }}>x</button>;
+                  })}
+                  {nodes.map((node) => (
+                    <div
+                      key={node.id}
+                      className={`node ${selection.kind === "node" && selection.nodeId === node.id ? "node-selected" : ""}`}
+                      style={{ left: `${node.x}px`, top: `${node.y}px` }}
+                      onPointerDown={(ev) => startNodeDrag(node.id, ev)}
+                    >
+                      <button className="node-delete" title="Delete component" onPointerDown={(ev) => ev.stopPropagation()} onClick={(ev) => { ev.stopPropagation(); removeNode(node.id); }}>x</button>
+                      <div className="node-title">{node.properties?.name || node.type}</div>
+                      <div className="node-sub">{node.inputs} in / {node.outputs} out</div>
+                      {Array.from({ length: node.inputs }).map((_, i) => {
+                        const step = 100 / (node.inputs + 1);
+                        return <div key={`in-${i}`} className="port in" style={{ top: `${step * (i + 1)}%` }} onPointerDown={(ev) => startWire(node.id, "in", i, ev)} onPointerUp={(ev) => endWire(node.id, "in", i, ev)} />;
+                      })}
+                      {Array.from({ length: node.outputs }).map((_, i) => {
+                        const step = 100 / (node.outputs + 1);
+                        return <div key={`out-${i}`} className="port out" style={{ top: `${step * (i + 1)}%` }} onPointerDown={(ev) => startWire(node.id, "out", i, ev)} onPointerUp={(ev) => endWire(node.id, "out", i, ev)} />;
+                      })}
+                    </div>
+                  ))}
+                </div>
+              </main>
+
+              {selection.kind !== "none" && (
+                <aside className="props-panel">
+                  <h2>Properties</h2>
+                  <p className="props-label">{selection.kind === "simulation" ? "Simulation" : selectedNode ? `${selectedNode.type} (${selectedNode.id})` : "No component selected"}</p>
+                  <div className="props-content">
+                    {selection.kind === "simulation" ? (
+                      <SimulationPropertiesEditor value={simulationProperties} onChange={setSimulationProperties} />
+                    ) : selectedNode ? (
+                      <NodePropertiesEditor node={selectedNode} onPatch={(patch) => updateNodeProps(selectedNode.id, patch)} />
+                    ) : (
+                      <div className="props-empty">Select a component to edit properties.</div>
+                    )}
+                  </div>
+                </aside>
+              )}
+            </div>
+
+            <div className={`preview-modal ${previewOpen ? "open" : ""}`} aria-hidden={previewOpen ? "false" : "true"} onClick={(ev) => { if (ev.target.classList.contains("preview-modal")) setPreviewOpen(false); }}>
+              <div className="preview-card" role="dialog" aria-modal="true" aria-label="Generated code preview">
+                <div className="preview-header">
+                  <h3 className="preview-title">Generated Code Preview</h3>
+                  <button className="preview-close" onClick={() => setPreviewOpen(false)}>x</button>
+                </div>
+                <div className="preview-body"><pre className="preview-code">{code}</pre></div>
+                {warningsOpen && (
+                  <div className="preview-warnings">
+                    {issues.map((issue, idx) => (
+                      <div className="warn-item" key={`${issue.severity}-${idx}`}>
+                        <span className={`warn-badge ${issue.severity}`}>{issue.severity}</span>
+                        <div className="warn-text">{issue.message}</div>
+                      </div>
+                    ))}
+                  </div>
+                )}
+                <div className="preview-footer">
+                  <button className={`warnings-tab ${warningsOpen ? "active" : ""}`} onClick={() => setWarningsOpen((v) => !v)}>Warnings E:{warnCounts.error} W:{warnCounts.warning} I:{warnCounts.info}</button>
+                  <input className="export-filename" type="text" value={exportFilename} placeholder="filename.py" onChange={(ev) => setExportFilename(ev.target.value)} />
+                  <button className="export-btn" onClick={exportGeneratedCode}>Export</button>
+                  <div className={`export-status ${exportStatus.error ? "error" : ""}`}>{exportStatus.text}</div>
+                </div>
+              </div>
+            </div>
+          </>
+        );
       }
 
-      function setSelectedNode(nodeId) {
-        selectedNodeId = nodeId;
-        nodes.forEach((node, id) => {
-          node.element.classList.toggle("node-selected", id === nodeId);
+      function Field({ label, children }) {
+        return <div className="props-row"><label>{label}</label>{children}</div>;
+      }
+
+      function NodePropertiesEditor({ node, onPatch }) {
+        const p = node.properties || {};
+        return (
+          <>
+            <Field label="Name"><input className="props-input" value={p.name ?? ""} onChange={(e) => onPatch({ name: e.target.value })} /></Field>
+            <Field label="Component ID"><input className="props-input" value={p.componentId ?? ""} onChange={(e) => onPatch({ componentId: e.target.value })} /></Field>
+            <label className="props-checkbox"><input type="checkbox" checked={Boolean(p.trackState)} onChange={(e) => onPatch({ trackState: e.target.checked })} /><span>Track state history</span></label>
+            <Field label="Notes"><textarea className="props-textarea" value={p.notes ?? ""} onChange={(e) => onPatch({ notes: e.target.value })} /></Field>
+            <div className="props-divider">{node.type} settings</div>
+            {node.type === "Source" && (
+              <>
+                <Field label="Output entity name"><input className="props-input" value={p.outputEntityName ?? ""} onChange={(e) => onPatch({ outputEntityName: e.target.value })} /></Field>
+                <Field label="Interval distribution">
+                  <select className="props-select" value={p.intervalMode ?? "constant"} onChange={(e) => onPatch({ intervalMode: e.target.value })}>
+                    <option value="constant">Constant</option><option value="uniform">Uniform</option><option value="none">None (external only)</option>
+                  </select>
+                </Field>
+                {(p.intervalMode ?? "constant") !== "none" && <Field label="Interval parameter A"><input type="number" className="props-input" value={p.intervalA ?? ""} onChange={(e) => onPatch({ intervalA: e.target.value })} /></Field>}
+                {(p.intervalMode ?? "constant") === "uniform" && <Field label="Interval parameter B"><input type="number" className="props-input" value={p.intervalB ?? ""} onChange={(e) => onPatch({ intervalB: e.target.value })} /></Field>}
+                <label className="props-checkbox"><input type="checkbox" checked={Boolean(p.startupGenerate)} onChange={(e) => onPatch({ startupGenerate: e.target.checked })} /><span>Startup generate event</span></label>
+              </>
+            )}
+            {node.type === "Delay" && (
+              <>
+                <Field label="Delay distribution">
+                  <select className="props-select" value={p.delayMode ?? "constant"} onChange={(e) => onPatch({ delayMode: e.target.value })}>
+                    <option value="constant">Constant</option><option value="uniform">Uniform</option><option value="exponential">Exponential</option>
+                  </select>
+                </Field>
+                <Field label="Delay parameter A"><input type="number" className="props-input" value={p.delayA ?? ""} onChange={(e) => onPatch({ delayA: e.target.value })} /></Field>
+                {(p.delayMode ?? "constant") === "uniform" && <Field label="Delay parameter B"><input type="number" className="props-input" value={p.delayB ?? ""} onChange={(e) => onPatch({ delayB: e.target.value })} /></Field>}
+                <Field label="Capacity"><input type="number" className="props-input" value={p.capacity ?? ""} onChange={(e) => onPatch({ capacity: e.target.value })} /></Field>
+              </>
+            )}
+            {node.type === "Transformer" && (
+              <>
+                <Field label="Transform label"><input className="props-input" value={p.transformLabel ?? ""} onChange={(e) => onPatch({ transformLabel: e.target.value })} /></Field>
+                <Field label="Pass-through field"><input className="props-input" value={p.passThroughField ?? ""} onChange={(e) => onPatch({ passThroughField: e.target.value })} /></Field>
+                <Field label="Rate hint (optional)"><input type="number" className="props-input" value={p.rateHint ?? ""} onChange={(e) => onPatch({ rateHint: e.target.value })} /></Field>
+              </>
+            )}
+            {node.type === "Sink" && (
+              <>
+                <label className="props-checkbox"><input type="checkbox" checked={Boolean(p.storeRecords)} onChange={(e) => onPatch({ storeRecords: e.target.checked })} /><span>Store arrival records</span></label>
+                <label className="props-checkbox"><input type="checkbox" checked={Boolean(p.collectStats)} onChange={(e) => onPatch({ collectStats: e.target.checked })} /><span>Collect stats</span></label>
+              </>
+            )}
+          </>
+        );
+      }
+
+      function SimulationPropertiesEditor({ value, onChange }) {
+        function patch(next) { onChange((prev) => ({ ...prev, ...next })); }
+        return (
+          <>
+            <Field label="Simulation name"><input className="props-input" value={value.name ?? ""} onChange={(e) => patch({ name: e.target.value })} /></Field>
+            <Field label="Function name"><input className="props-input" value={value.functionName ?? ""} onChange={(e) => patch({ functionName: e.target.value })} /></Field>
+            <Field label="Time limit (optional)"><input type="number" className="props-input" value={value.timeLimit ?? ""} onChange={(e) => patch({ timeLimit: e.target.value })} /></Field>
+            <label className="props-checkbox"><input type="checkbox" checked={Boolean(value.visualizeDefault)} onChange={(e) => patch({ visualizeDefault: e.target.checked })} /><span>Default visualize on run</span></label>
+            <Field label="Output directory"><input className="props-input" value={value.outputDir ?? ""} onChange={(e) => patch({ outputDir: e.target.value })} /></Field>
+            <Field label="Log file"><input className="props-input" value={value.logFile ?? ""} onChange={(e) => patch({ logFile: e.target.value })} /></Field>
+            <div className="props-divider">Notes</div>
+            <Field label="Simulation notes"><textarea className="props-textarea" value={value.notes ?? ""} onChange={(e) => patch({ notes: e.target.value })} /></Field>
+          </>
+        );
+      }
+
+      function addIssue(issues, severity, message) { issues.push({ severity, message }); }
+      function validateDesign(nodes, connections) {
+        const issues = [];
+        if (nodes.length === 0) { addIssue(issues, "info", "Canvas is empty."); return issues; }
+        const idCounts = new Map();
+        nodes.forEach((node) => {
+          const p = node.properties || {};
+          const componentId = String(p.componentId || "").trim();
+          const name = String(p.name || "").trim();
+          if (!name) addIssue(issues, "warning", `${node.type} (${node.id}) has an empty Name.`);
+          if (!componentId) addIssue(issues, "error", `${node.type} (${node.id}) has an empty Component ID.`);
+          else idCounts.set(componentId, (idCounts.get(componentId) || 0) + 1);
+          if (node.type === "Source") {
+            const mode = p.intervalMode || "constant";
+            if (mode !== "none" && !Number.isFinite(Number(p.intervalA))) addIssue(issues, "error", `${name || node.id}: Source interval parameter A must be numeric.`);
+            if (mode === "uniform" && !Number.isFinite(Number(p.intervalB))) addIssue(issues, "error", `${name || node.id}: Source interval parameter B must be numeric for uniform mode.`);
+          } else if (node.type === "Delay") {
+            const mode = p.delayMode || "constant";
+            if (!Number.isFinite(Number(p.delayA))) addIssue(issues, "error", `${name || node.id}: Delay parameter A must be numeric.`);
+            if (mode === "uniform" && !Number.isFinite(Number(p.delayB))) addIssue(issues, "error", `${name || node.id}: Delay parameter B must be numeric for uniform mode.`);
+            if (!Number.isFinite(Number(p.capacity))) addIssue(issues, "error", `${name || node.id}: Delay capacity must be numeric.`);
+          } else if (node.type === "Transformer") {
+            if (!String(p.transformLabel || "").trim()) addIssue(issues, "warning", `${name || node.id}: Transformer label is empty.`);
+          }
         });
-        appShell.classList.toggle("props-open", nodeId !== null);
-        if (nodeId === null) {
-          propsLabel.textContent = "No component selected";
-          renderPropertiesEditor(null);
-          return;
+        idCounts.forEach((count, componentId) => { if (count > 1) addIssue(issues, "error", `Duplicate Component ID '${componentId}' used ${count} times.`); });
+        const inD = new Map(); const outD = new Map(); const adj = new Map();
+        nodes.forEach((n) => { inD.set(n.id, 0); outD.set(n.id, 0); adj.set(n.id, []); });
+        connections.forEach((c) => {
+          if (!inD.has(c.inNode) || !outD.has(c.outNode)) return;
+          inD.set(c.inNode, inD.get(c.inNode) + 1);
+          outD.set(c.outNode, outD.get(c.outNode) + 1);
+          adj.get(c.outNode).push(c.inNode);
+        });
+        nodes.forEach((n) => {
+          const name = String((n.properties && n.properties.name) || n.id);
+          const i = inD.get(n.id) || 0; const o = outD.get(n.id) || 0;
+          if (i === 0 && o === 0) addIssue(issues, "warning", `${name} is disconnected.`);
+          if (n.type === "Source" && o === 0) addIssue(issues, "warning", `${name} has no downstream connection.`);
+          if (n.type === "Sink" && i === 0) addIssue(issues, "error", `${name} has no upstream connection.`);
+          if ((n.type === "Delay" || n.type === "Transformer") && i === 0) addIssue(issues, "warning", `${name} has no upstream connection.`);
+          if ((n.type === "Delay" || n.type === "Transformer") && o === 0) addIssue(issues, "warning", `${name} has no downstream connection.`);
+        });
+        const sourceIds = nodes.filter((n) => n.type === "Source").map((n) => n.id);
+        if (sourceIds.length > 0) {
+          const seen = new Set(sourceIds);
+          const q = [...sourceIds];
+          while (q.length > 0) { const id = q.shift(); (adj.get(id) || []).forEach((nx) => { if (!seen.has(nx)) { seen.add(nx); q.push(nx); } }); }
+          nodes.forEach((n) => { if (!seen.has(n.id)) addIssue(issues, "info", `${(n.properties && n.properties.name) || n.id} is not reachable from any Source.`); });
         }
-        const node = nodes.get(nodeId);
-        propsLabel.textContent = node ? `${node.type} (${node.id})` : "No component selected";
-        renderPropertiesEditor(node || null);
+        if (issues.length === 0) addIssue(issues, "info", "No validation issues found.");
+        return issues;
       }
 
-      function updateLine(line, x1, y1, x2, y2) {
-        line.setAttribute("x1", String(x1));
-        line.setAttribute("y1", String(y1));
-        line.setAttribute("x2", String(x2));
-        line.setAttribute("y2", String(y2));
+      function buildPythonCode(nodes, connections, simulationProperties) {
+        const simFnName = sanitizePyName(simulationProperties.functionName || "generated_simulation");
+        const simDisplayName = String(simulationProperties.name || "Generated simulation");
+        const defaultVisualize = Boolean(simulationProperties.visualizeDefault);
+        const outputDir = String(simulationProperties.outputDir || "output");
+        const logFile = String(simulationProperties.logFile || "sim.log");
+        const timeLimitRaw = String(simulationProperties.timeLimit || "").trim();
+        const hasTimeLimit = timeLimitRaw !== "" && Number.isFinite(Number(timeLimitRaw));
+        const timeLimitExpr = hasTimeLimit ? String(Number(timeLimitRaw)) : "None";
+        const lines = [];
+        lines.push("# Generated by simulation_designer prototype");
+        lines.push("# Manual review required before running.");
+        lines.push(`# ${simDisplayName}`);
+        lines.push("", "import sys", "from pathlib import Path", "");
+        lines.push("_root = Path(__file__).resolve().parent.parent.parent");
+        lines.push('_src = _root / "src"');
+        lines.push("for p in (_src, _root):", "    if str(p) not in sys.path:", "        sys.path.insert(0, str(p))", "");
+        lines.push("from src.core import (", "    Engine,", "    Event,", "    SimulationContext,", "    SourceComponent,", "    DelayComponent,", "    TransformerComponent,", "    SinkComponent,", ")");
+        lines.push("from src.modules import setup_logging");
+        lines.push("from src.modules.utils import ConstantDistribution, UniformDistribution, ExponentialDistribution", "");
+        const usedNames = new Set(); const varByNodeId = new Map(); const idByNodeId = new Map();
+        nodes.forEach((node) => {
+          const p = node.properties || {};
+          const componentId = String(p.componentId || sanitizePyName(node.type));
+          idByNodeId.set(node.id, componentId);
+          let varName = sanitizePyName(componentId);
+          if (usedNames.has(varName)) { let i = 2; while (usedNames.has(`${varName}_${i}`)) i += 1; varName = `${varName}_${i}`; }
+          usedNames.add(varName); varByNodeId.set(node.id, varName);
+        });
+        nodes.filter((n) => n.type === "Source").forEach((node) => {
+          const p = node.properties || {}; const fnName = `entity_${varByNodeId.get(node.id)}`;
+          lines.push(`def ${fnName}(ctx: SimulationContext):`); lines.push(`    return {"name": ${pyQuote(p.outputEntityName || "entity")}}`); lines.push("");
+        });
+        nodes.filter((n) => n.type === "Transformer").forEach((node) => {
+          const p = node.properties || {}; const fnName = `transform_${varByNodeId.get(node.id)}`;
+          lines.push(`def ${fnName}(ctx: SimulationContext):`, "    entity = dict(ctx.event.entity)");
+          const field = String(p.passThroughField || "").trim();
+          if (field) lines.push(`    # pass-through key hint: ${field}`);
+          lines.push("    return entity", "");
+        });
+        lines.push(`def ${simFnName}(visualize: bool = ${boolPy(defaultVisualize)}) -> Engine:`);
+        lines.push(`    engine = Engine(visualize=visualize, time_limit=${timeLimitExpr}, output_dir=${pyQuote(outputDir)})`, "");
+        nodes.forEach((node) => {
+          const p = node.properties || {}; const varName = varByNodeId.get(node.id); const componentId = idByNodeId.get(node.id); const trackState = boolPy(Boolean(p.trackState));
+          if (node.type === "Source") {
+            const interval = distExpr(p.intervalMode || "constant", p.intervalA, p.intervalB);
+            lines.push(`    ${varName} = SourceComponent(${pyQuote(componentId)}, entity_${varName}, interval=${interval}, track_state=${trackState})`);
+            if (p.startupGenerate) lines.push(`    engine.add_startup_event(Event(0, ${pyQuote(componentId)}, "Generate", {}, {}))`);
+          } else if (node.type === "Delay") {
+            const delay = distExpr(p.delayMode || "constant", p.delayA, p.delayB); const capacity = toNumberOr(p.capacity, 1000);
+            lines.push(`    ${varName} = DelayComponent(${pyQuote(componentId)}, ${delay}, capacity=${capacity}, track_state=${trackState})`);
+          } else if (node.type === "Transformer") {
+            lines.push(`    ${varName} = TransformerComponent(${pyQuote(componentId)}, transform_${varName}, track_state=${trackState})`);
+          } else if (node.type === "Sink") {
+            lines.push(`    ${varName} = SinkComponent(${pyQuote(componentId)}, track_state=${trackState})`);
+          }
+        });
+        lines.push("");
+        connections.forEach((conn) => {
+          const outVar = varByNodeId.get(conn.outNode); const inVar = varByNodeId.get(conn.inNode);
+          if (outVar && inVar) lines.push(`    ${outVar}.output_to(${inVar})`);
+        });
+        lines.push("");
+        nodes.forEach((node) => lines.push(`    engine.add_component(${varByNodeId.get(node.id)})`));
+        lines.push("", "    engine.run()", "    return engine", "", "", 'if __name__ == "__main__":');
+        lines.push(`    setup_logging(log_file=${pyQuote(logFile)}, output_dir=${pyQuote(outputDir)})`);
+        lines.push(`    ${simFnName}(visualize=${boolPy(defaultVisualize)})`, "");
+        return lines.join("\n");
       }
 
-      function cleanupTempLine() {
-        if (!activeWireDrag) return;
-        activeWireDrag.tempLine.remove();
-        activeWireDrag = null;
+      function sanitizeFilename(raw) {
+        const base = String(raw || "").trim().replace(/[<>:"/\\|?*\x00-\x1f]/g, "_");
+        if (!base) return "generated_simulation.py";
+        return base.toLowerCase().endsWith(".py") ? base : `${base}.py`;
+      }
+      function openHandleDb() {
+        return new Promise((resolve, reject) => {
+          const req = indexedDB.open(HANDLE_DB_NAME, 1);
+          req.onupgradeneeded = () => { req.result.createObjectStore(HANDLE_STORE); };
+          req.onsuccess = () => resolve(req.result);
+          req.onerror = () => reject(req.error);
+        });
+      }
+      async function saveSimulationsDirHandle(handle) {
+        try {
+          const db = await openHandleDb();
+          await new Promise((resolve, reject) => {
+            const tx = db.transaction(HANDLE_STORE, "readwrite");
+            tx.objectStore(HANDLE_STORE).put(handle, HANDLE_KEY);
+            tx.oncomplete = () => resolve();
+            tx.onerror = () => reject(tx.error);
+          });
+          db.close();
+        } catch (_err) {}
+      }
+      async function loadSimulationsDirHandle() {
+        try {
+          const db = await openHandleDb();
+          const handle = await new Promise((resolve, reject) => {
+            const tx = db.transaction(HANDLE_STORE, "readonly");
+            const getReq = tx.objectStore(HANDLE_STORE).get(HANDLE_KEY);
+            getReq.onsuccess = () => resolve(getReq.result || null);
+            getReq.onerror = () => reject(getReq.error);
+          });
+          db.close();
+          return handle;
+        } catch (_err) {
+          return null;
+        }
+      }
+      async function ensureWritePermission(handle) {
+        if (!handle || typeof handle.queryPermission !== "function") return false;
+        try {
+          const opts = { mode: "readwrite" };
+          if ((await handle.queryPermission(opts)) === "granted") return true;
+          if ((await handle.requestPermission(opts)) === "granted") return true;
+        } catch (_err) {
+          return false;
+        }
+        return false;
+      }
+      async function ensureSimulationsHandle(simulationsHandleRef) {
+        if (simulationsHandleRef.current && (await ensureWritePermission(simulationsHandleRef.current))) return simulationsHandleRef.current;
+        const restored = await loadSimulationsDirHandle();
+        if (restored && (await ensureWritePermission(restored))) { simulationsHandleRef.current = restored; return simulationsHandleRef.current; }
+        if (typeof window.showDirectoryPicker !== "function") return null;
+        simulationsHandleRef.current = await window.showDirectoryPicker({ mode: "readwrite", id: "simulations-folder" });
+        await ensureWritePermission(simulationsHandleRef.current);
+        await saveSimulationsDirHandle(simulationsHandleRef.current);
+        return simulationsHandleRef.current;
       }
 
-      function updateNodePosition(node) {
-        node.element.style.left = `${node.x}px`;
-        node.element.style.top = `${node.y}px`;
-      }
-
-      window.addEventListener("resize", () => {
-        connections.forEach(updateConnection);
-      });
+      ReactDOM.createRoot(document.getElementById("root")).render(<SimulationDesignerApp />);
     </script>
   </body>
 </html>
