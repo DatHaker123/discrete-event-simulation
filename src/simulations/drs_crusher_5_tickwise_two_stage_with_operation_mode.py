@@ -45,14 +45,14 @@ CRUSHER_HIGH_STOCK = 24.0
 CRUSHER_LOW_STOCK = 10.5
 CRUSHER_SWELL_FACTOR = 1.3
 
-# --- Grinder tuning (intentionally offset from crusher) ---
-GRINDER_SLOW_CAPACITY = UniformDistribution(6.0, 6.2)
-GRINDER_FAST_CAPACITY = UniformDistribution(8.5, 8.7)
+# --- Grinder tuning ---
+GRINDER_SLOW_CAPACITY = UniformDistribution(10.0, 10.2)
+GRINDER_FAST_CAPACITY = UniformDistribution(12.5, 12.7)
 GRINDER_HIGH_STOCK = 20.5
 GRINDER_LOW_STOCK = 8.5
 GRINDER_YIELD = 1.0
 
-TIME_LIMIT = 320.0
+TIME_LIMIT = 300.0
 
 
 INITIAL_SOURCE_STATE: dict[str, Any] = {
@@ -64,6 +64,7 @@ INITIAL_SOURCE_STATE: dict[str, Any] = {
 INITIAL_CRUSHER_STATE: dict[str, Any] = {
     "stockpile": 0.0,
     "mode": "slow",
+    "processed_tonnes_step": 0.0,
     "total_in": 0.0,
     "total_out": 0.0,
 }
@@ -71,6 +72,7 @@ INITIAL_CRUSHER_STATE: dict[str, Any] = {
 INITIAL_GRINDER_STATE: dict[str, Any] = {
     "stockpile": 0.0,
     "mode": "slow",
+    "processed_tonnes_step": 0.0,
     "total_in": 0.0,
     "total_out": 0.0,
 }
@@ -94,13 +96,17 @@ def crusher_transform(ctx: SimulationContext) -> Entity:
     st["stockpile"] = float(st["stockpile"]) + raw_in
     st["total_in"] = float(st["total_in"]) + raw_in
 
-    selected_mode = ctx.component.update_current_mode(ctx)
-    st["mode"] = selected_mode.name
-    capacity = float(selected_mode.data["throughput_tph"].sample())
+    active_mode = ctx.component.current_mode
+    if active_mode is None:
+        active_mode = ctx.component.update_current_mode(ctx)
+    capacity = float(active_mode.data["throughput_tph"].sample())
     crushed = min(float(st["stockpile"]) * CRUSHER_SWELL_FACTOR, capacity)
 
     st["stockpile"] = float(st["stockpile"]) - crushed
+    st["processed_tonnes_step"] = crushed
     st["total_out"] = float(st["total_out"]) + crushed
+    selected_mode = ctx.component.update_current_mode(ctx)
+    st["mode"] = selected_mode.name
 
     return {
         "crushed_tonnes": crushed,
@@ -115,14 +121,18 @@ def grinder_transform(ctx: SimulationContext) -> Entity:
     st["stockpile"] = float(st["stockpile"]) + infeed
     st["total_in"] = float(st["total_in"]) + infeed
 
-    selected_mode = ctx.component.update_current_mode(ctx)
-    st["mode"] = selected_mode.name
-    capacity = float(selected_mode.data["throughput_tph"].sample())
+    active_mode = ctx.component.current_mode
+    if active_mode is None:
+        active_mode = ctx.component.update_current_mode(ctx)
+    capacity = float(active_mode.data["throughput_tph"].sample())
     processed = min(float(st["stockpile"]), capacity)
     final_out = processed * GRINDER_YIELD
 
     st["stockpile"] = float(st["stockpile"]) - processed
+    st["processed_tonnes_step"] = processed
     st["total_out"] = float(st["total_out"]) + final_out
+    selected_mode = ctx.component.update_current_mode(ctx)
+    st["mode"] = selected_mode.name
 
     return {
         "ground_tonnes": final_out,
@@ -204,6 +214,9 @@ def post_run(engine: Engine, options: RunOptions, module: object | None = None) 
     print(get_records_as_printable_string(engine.get_results()))
 
     target_component_id = "crusher"
+    # target_statistic_key = "stockpile"
+    # target_component_id = "grinder"
+    target_statistic_key = "processed_tonnes_step"
     target_component = next((c for c in engine.get_results() if c.component_id == target_component_id), None)
 
     # series = state_key_series_from_history(target_component, "stockpile")
@@ -215,15 +228,17 @@ def post_run(engine: Engine, options: RunOptions, module: object | None = None) 
 
     plotter = SimulationPlot(
         state_history=target_component.state_history,
-        y_key="stockpile",
-        name=f"{target_component_id} stockpile vs time",
+        y_key=target_statistic_key,
+        name=f"{target_component_id} {target_statistic_key} vs time",
     )
-    plotter.add_horizontal_line(CRUSHER_HIGH_STOCK, label="high", color="C3")
-    plotter.add_horizontal_line(CRUSHER_LOW_STOCK, label="low", color="C2")
+    # plotter.add_horizontal_line(CRUSHER_HIGH_STOCK, label="high", color="C3")
+    # plotter.add_horizontal_line(CRUSHER_LOW_STOCK, label="low", color="C2")
+    # plotter.add_horizontal_line(GRINDER_HIGH_STOCK, label="high", color="C3")
+    # plotter.add_horizontal_line(GRINDER_LOW_STOCK, label="low", color="C2")
 
     plotter.plot_mode_changes()
     figure_path = plotter.render(
-        output_name_prefix=f"{Path(__file__).stem}_{target_component_id}_stockpile",
+        output_name_prefix=f"{Path(__file__).stem}_{target_component_id}_{target_statistic_key}",
         show=True,
     )
     if figure_path is not None:

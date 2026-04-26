@@ -101,6 +101,12 @@ class SimulationPlot:
         for t, snap in self.state_history:
             current_mode = snap["mode"]
             if not initialized:
+                mode_label = str(current_mode)
+                if mode_label not in mode_to_color:
+                    mode_to_color[mode_label] = next(color_cycle)
+                start_label = f"mode={mode_label}"
+                self.add_vertical_line(float(t), color=mode_to_color[mode_label], label=start_label)
+                used_labels.add(mode_label)
                 last_mode = current_mode
                 initialized = True
                 continue
