@@ -167,6 +167,12 @@ Event(t, component.output.component_id, "Arrival", entity_dict, {})
 
 - **`transform_function(ctx) -> Entity`** — Returns a new **`dict`** payload; a same-time **`Departure`** is scheduled with that entity, then **`default_handle_departure`** forwards it.
 
+#### `SplitterComponent(component_id, splitter_function, track_state=False)`
+
+- **`splitter_function(ctx) -> dict[str, Entity]`** — Returns a mapping keyed by downstream `component_id`.
+- Unknown keys raise an error.
+- Omitted downstream IDs are allowed and mean “emit nothing” for that branch on that event.
+
 Default handlers are **public methods** (e.g. **`SourceComponent.default_handle_generate`**) so subclasses or wrappers can delegate. Call them with a proper **`SimulationContext`** for the intended concrete component.
 
 ---

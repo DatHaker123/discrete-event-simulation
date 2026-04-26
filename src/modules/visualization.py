@@ -45,9 +45,54 @@ class Visualizer:
         self._G = nx.DiGraph()
         self._G.add_nodes_from(self._nodes)
         self._G.add_edges_from(self._edges)
-        self._pos = nx.spring_layout(self._G, seed=42) if self._nodes else {}
+        self._pos = self._build_layout_positions() if self._nodes else {}
         self._frame_idx = 0
         print(f"Recording frames -> {self._path}")
+
+    def _build_layout_positions(self) -> dict:
+        """
+        Build stable node positions for visualization pages.
+
+        Prefer topological layering (left-to-right process flow) for DAGs; fallback to
+        spring layout if the graph is cyclic.
+        """
+        try:
+            generations = list(nx.topological_generations(self._G))
+        except nx.NetworkXUnfeasible:
+            # Cyclic graph: keep deterministic fallback.
+            return nx.spring_layout(self._G, seed=42)
+
+        if not generations:
+            return {}
+
+        pos: dict = {}
+        layer_count = len(generations)
+        for layer_idx, layer_nodes in enumerate(generations):
+            ordered_nodes = sorted(layer_nodes)
+            n = len(ordered_nodes)
+            if n == 1:
+                y_values = [0.0]
+            else:
+                # Evenly spread nodes vertically from top to bottom.
+                y_values = [1.0 - (2.0 * i / (n - 1)) for i in range(n)]
+
+            x = float(layer_idx)
+            for node, y in zip(ordered_nodes, y_values):
+                pos[node] = (x, y)
+
+        # Ensure isolated nodes not present in generations still get a position.
+        missing_nodes = [n for n in self._nodes if n not in pos]
+        if missing_nodes:
+            x = float(layer_count)
+            n = len(missing_nodes)
+            if n == 1:
+                y_values = [0.0]
+            else:
+                y_values = [1.0 - (2.0 * i / (n - 1)) for i in range(n)]
+            for node, y in zip(sorted(missing_nodes), y_values):
+                pos[node] = (x, y)
+
+        return pos
 
     def add_frame(self, time_val: float, event, queue_snapshot: list) -> None:
         """Append one page to the PDF for this step."""

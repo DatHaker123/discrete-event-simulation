@@ -386,15 +386,15 @@ class SplitterComponent(Component):
     """
     Fan-out DES component similar to Transformer, but one input to many outputs.
 
-    ``splitter_function`` receives ``(ctx)`` and returns either:
-      - ``list[Entity]`` / ``tuple[Entity, ...]`` with one payload per output in order, or
-      - ``dict[str, Entity]`` keyed by downstream ``component_id``.
+    ``splitter_function`` receives ``(ctx)`` and must return
+    ``dict[str, Entity]`` keyed by downstream ``component_id``.
+    Omitted downstream IDs emit nothing for that branch.
     """
 
     def __init__(
         self,
         component_id: str,
-        splitter_function: Callable[[SimulationContext], list[Entity] | tuple[Entity, ...] | dict[str, Entity]],
+        splitter_function: Callable[[SimulationContext], dict[str, Entity]],
         track_state: bool = False,
     ):
         super().__init__(component_id, "Splitter", track_state=track_state)
@@ -417,22 +417,18 @@ class SplitterComponent(Component):
             raise ValueError(f"Splitter component {self.component_id} has no outputs")
 
         split_result = self.splitter_function(ctx)
-        if isinstance(split_result, dict):
-            for out in outputs:
-                if out.component_id not in split_result:
-                    continue
-                engine.add_event(
-                    Event(current_time, out.component_id, "Arrival", split_result[out.component_id], {})
-                )
-            return
-
-        if not isinstance(split_result, (list, tuple)):
+        if not isinstance(split_result, dict):
             raise ValueError(
-                f"Splitter component {self.component_id} expected list/tuple/dict from splitter_function, got {type(split_result)}"
+                f"Splitter component {self.component_id} expected dict[str, Entity] from splitter_function, got {type(split_result)}"
             )
-        if len(split_result) != len(outputs):
+        output_ids = {out.component_id for out in outputs}
+        result_ids = set(split_result.keys())
+        unknown = result_ids - output_ids
+        if unknown:
             raise ValueError(
-                f"Splitter component {self.component_id} produced {len(split_result)} entities for {len(outputs)} outputs"
+                f"Splitter component {self.component_id} mapping mismatch: unknown keys={sorted(unknown)}"
             )
-        for out, entity in zip(outputs, split_result):
-            engine.add_event(Event(current_time, out.component_id, "Arrival", entity, {}))
+        for out in outputs:
+            if out.component_id not in split_result:
+                continue
+            engine.add_event(Event(current_time, out.component_id, "Arrival", split_result[out.component_id], {}))
