@@ -25,6 +25,12 @@ from src.core import (
     TransformerComponent,
 )
 from src.modules.operation_mode import OperationModeTrigger, OperationMode, with_operational_mode
+from src.modules.sim_output import (
+    RunOptions,
+    SimulationPlot,
+    print_series_sample,
+)
+from src.modules.stats import get_records_as_printable_string, state_key_series_from_history
 from src.modules.utils import ConstantDistribution, UniformDistribution
 
 
@@ -68,69 +74,6 @@ INITIAL_GRINDER_STATE: dict[str, Any] = {
     "total_in": 0.0,
     "total_out": 0.0,
 }
-
-# Tell src.run which stockpile to report and plot.
-STOCKPILE_COMPONENT_ID = "grinder"
-STOCKPILE_STATE_KEY = "stockpile"
-MODE_CHANGE_COMPONENT_ID = "crusher"
-MODE_CHANGE_STATE_KEY = "mode"
-MODE_TRANSITION_Y_MIN = 0.0
-MODE_TRANSITION_Y_MAX = 22.0
-MODE_TRANSITION_BARS_BY_TARGET = {
-    "crusher": (
-        {
-            "component_id": "crusher",
-            "mode_key": "mode",
-            "from_mode": "slow",
-            "to_mode": "fast",
-            "color": "plum",
-            "label": "crusher slow->fast",
-        },
-        {
-            "component_id": "crusher",
-            "mode_key": "mode",
-            "from_mode": "fast",
-            "to_mode": "slow",
-            "color": "purple",
-            "label": "crusher fast->slow",
-        },
-    ),
-    "grinder": (
-        {
-            "component_id": "grinder",
-            "mode_key": "mode",
-            "from_mode": "slow",
-            "to_mode": "fast",
-            "color": "khaki",
-            "label": "grinder slow->fast",
-        },
-        {
-            "component_id": "grinder",
-            "mode_key": "mode",
-            "from_mode": "fast",
-            "to_mode": "slow",
-            "color": "darkgoldenrod",
-            "label": "grinder fast->slow",
-        },
-        {
-            "component_id": "crusher",
-            "mode_key": "mode",
-            "from_mode": "slow",
-            "to_mode": "fast",
-            "color": "plum",
-            "label": "crusher slow->fast",
-        },
-        {
-            "component_id": "crusher",
-            "mode_key": "mode",
-            "from_mode": "fast",
-            "to_mode": "slow",
-            "color": "purple",
-            "label": "crusher fast->slow",
-        },
-    ),
-}
-
 
 def ore_feed_entity(ctx: SimulationContext) -> Entity:
     st = ctx.component.state
@@ -254,6 +197,37 @@ def drs_crusher_simulation(visualize: bool = False) -> Engine:
 
     engine.run()
     return engine
+
+
+def post_run(engine: Engine, options: RunOptions, module: object | None = None) -> None:
+    _ = module
+    print(get_records_as_printable_string(engine.get_results()))
+
+    target_component_id = "crusher"
+    target_component = next((c for c in engine.get_results() if c.component_id == target_component_id), None)
+
+    # series = state_key_series_from_history(target_component, "stockpile")
+    # print(f"\n# stockpile component: {target_component_id}")
+    # print_series_sample(series, label=f"{target_component_id} stockpile")
+
+    if not options.plot:
+        return
+
+    plotter = SimulationPlot(
+        state_history=target_component.state_history,
+        y_key="stockpile",
+        name=f"{target_component_id} stockpile vs time",
+    )
+    plotter.add_horizontal_line(CRUSHER_HIGH_STOCK, label="high", color="C3")
+    plotter.add_horizontal_line(CRUSHER_LOW_STOCK, label="low", color="C2")
+
+    plotter.plot_mode_changes()
+    figure_path = plotter.render(
+        output_name_prefix=f"{Path(__file__).stem}_{target_component_id}_stockpile",
+        show=True,
+    )
+    if figure_path is not None:
+        print(f"\nSaved figure to {figure_path}")
 
 
 if __name__ == "__main__":

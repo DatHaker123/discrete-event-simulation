@@ -11,6 +11,8 @@ for p in (_src, _root):
         sys.path.insert(0, str(p))
 
 from src.core import DelayComponent, Engine, Event, SinkComponent, SourceComponent
+from src.modules import get_records_as_printable_string
+from src.modules.sim_output import RunOptions
 from src.modules.utils import UniformDistribution
 
 
@@ -29,6 +31,11 @@ def simple_simulation(visualize: bool = False) -> Engine:
     engine.add_component(sink)
     engine.run()
     return engine
+
+
+def post_run(engine: Engine, options: RunOptions) -> None:
+    _ = options
+    print(get_records_as_printable_string(engine.get_results()))
 
 
 if __name__ == "__main__":

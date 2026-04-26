@@ -22,6 +22,8 @@ from src.core import (
     SimulationContext
 )
 from src.modules.operation_mode import OperationMode, OperationModeTrigger
+from src.modules.stats import get_records_as_printable_string
+from src.modules.sim_output import RunOptions
 from src.modules.threshold_crossing import (
     RateSchedulerComponent,
     RateSourceComponent,
@@ -144,6 +146,11 @@ def drs_crusher_simulation(visualize: bool = False) -> Engine:
     # --- Run ---
     engine.run()
     return engine
+
+
+def post_run(engine: Engine, options: RunOptions) -> None:
+    _ = options
+    print(get_records_as_printable_string(engine.get_results()))
 
 
 if __name__ == "__main__":
