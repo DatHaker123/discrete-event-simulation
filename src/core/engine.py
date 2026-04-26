@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import heapq
 import os
+from copy import deepcopy
 from typing import TYPE_CHECKING, Any, Callable
 
 from .events import Event, priority_for_event_type
@@ -71,6 +72,8 @@ class Engine:
         self._startup_events.append(event)
 
     def add_event(self, event: Event):
+        # Central payload isolation rule: queued events own a deep-copied entity snapshot.
+        event.entity = deepcopy(event.entity)
         target = self._components.get(event.handler_id)
         if target is not None:
             event.version = target.version
@@ -94,10 +97,69 @@ class Engine:
         return self._event_queue.peek()
 
     def add_component(self, component: "Component"):
+        if component.component_id in self._components:
+            raise ValueError(f"Component '{component.component_id}' is already registered in engine")
         self._components[component.component_id] = component
 
     def remove_component(self, component: "Component"):
+        cid = component.component_id
+        target = self._components.get(cid)
+        if target is None:
+            raise ValueError(f"Component '{cid}' is not registered in engine")
+        for downstream in list(target.outputs):
+            self.disconnect(target, downstream)
+        for upstream in list(target.inputs):
+            self.disconnect(upstream, target)
         del self._components[component.component_id]
+
+    def _resolve_component_id(self, component_or_id: "Component | str") -> str:
+        if isinstance(component_or_id, str):
+            cid = component_or_id
+        else:
+            cid = component_or_id.component_id
+        if cid not in self._components:
+            raise ValueError(f"Component '{cid}' is not registered in engine")
+        return cid
+
+    def connect(self, c1: "Component | str", c2: "Component | str") -> None:
+        """Connect ``c1`` output to ``c2`` input. This is the only topology mutator."""
+        src = self._resolve_component_id(c1)
+        dst = self._resolve_component_id(c2)
+        if src == dst:
+            raise ValueError("Self-connections are not allowed")
+        source_component = self._components[src]
+        target_component = self._components[dst]
+        if source_component.type == "Sink":
+            raise ValueError(f"Sink component {src} cannot have outputs")
+        if target_component.type == "Source":
+            raise ValueError(f"Source component {dst} cannot have inputs")
+        if target_component in source_component.outputs:
+            raise ValueError(f"Component {src} is already connected to {dst}")
+        source_component._engine_add_output(target_component)
+        target_component._engine_add_input(source_component)
+        self.log.info(f"Connected {src} -> {dst}", extra={"sim_time": self._current_time})
+
+    def disconnect(self, c1: "Component | str", c2: "Component | str") -> None:
+        """Disconnect ``c1`` output from ``c2`` input."""
+        src = self._resolve_component_id(c1)
+        dst = self._resolve_component_id(c2)
+        source_component = self._components[src]
+        target_component = self._components[dst]
+        if target_component not in source_component.outputs:
+            raise ValueError(f"Component {src} is not connected to {dst}")
+        source_component._engine_remove_output(target_component)
+        target_component._engine_remove_input(source_component)
+        self.log.info(f"Disconnected {src} -> {dst}", extra={"sim_time": self._current_time})
+
+    def get_downstream(self, component_id: str) -> list["Component"]:
+        if component_id not in self._components:
+            raise ValueError(f"Component '{component_id}' is not registered in engine")
+        return list(self._components[component_id].outputs)
+
+    def get_upstream(self, component_id: str) -> list["Component"]:
+        if component_id not in self._components:
+            raise ValueError(f"Component '{component_id}' is not registered in engine")
+        return list(self._components[component_id].inputs)
 
     def run(self, on_step: Callable[[float, Event | None, list], None] | None = None):
         if self.time_limit is not None:
@@ -186,12 +248,9 @@ class Engine:
     def get_graph(self):
         """Return (node_ids, edges) for visualization. Nodes = component_id, edges = (from_id, to_id)."""
         nodes = list(self._components.keys())
-        edges = []
-        for c in self._components.values():
-            for out in getattr(c, "outputs", []) or []:
-                if out is not None:
-                    try:
-                        edges.append((c.component_id, out.component_id))
-                    except AttributeError:
-                        pass
+        edges = [
+            (src.component_id, dst.component_id)
+            for src in self._components.values()
+            for dst in src.outputs
+        ]
         return nodes, edges

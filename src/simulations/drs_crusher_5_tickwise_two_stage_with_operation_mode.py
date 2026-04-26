@@ -46,8 +46,8 @@ CRUSHER_LOW_STOCK = 10.5
 CRUSHER_SWELL_FACTOR = 1.3
 
 # --- Grinder tuning ---
-GRINDER_SLOW_CAPACITY = UniformDistribution(10.0, 10.2)
-GRINDER_FAST_CAPACITY = UniformDistribution(12.5, 12.7)
+GRINDER_SLOW_CAPACITY = UniformDistribution(6.5, 6.7)
+GRINDER_FAST_CAPACITY = UniformDistribution(8.5, 8.7)
 GRINDER_HIGH_STOCK = 20.5
 GRINDER_LOW_STOCK = 8.5
 GRINDER_YIELD = 1.0
@@ -198,12 +198,11 @@ def drs_crusher_simulation(visualize: bool = False) -> Engine:
 
     sink = SinkComponent("sink", track_state=False)
 
-    source.output_to(crusher)
-    crusher.output_to(grinder)
-    grinder.output_to(sink)
-
     for c in (source, crusher, grinder, sink):
         engine.add_component(c)
+    engine.connect(source, crusher)
+    engine.connect(crusher, grinder)
+    engine.connect(grinder, sink)
 
     engine.run()
     return engine
@@ -213,10 +212,10 @@ def post_run(engine: Engine, options: RunOptions, module: object | None = None) 
     _ = module
     print(get_records_as_printable_string(engine.get_results()))
 
-    target_component_id = "crusher"
-    # target_statistic_key = "stockpile"
-    # target_component_id = "grinder"
-    target_statistic_key = "processed_tonnes_step"
+    # target_component_id = "crusher"
+    target_statistic_key = "stockpile"
+    target_component_id = "grinder"
+    # target_statistic_key = "processed_tonnes_step"
     target_component = next((c for c in engine.get_results() if c.component_id == target_component_id), None)
 
     # series = state_key_series_from_history(target_component, "stockpile")
@@ -233,8 +232,8 @@ def post_run(engine: Engine, options: RunOptions, module: object | None = None) 
     )
     # plotter.add_horizontal_line(CRUSHER_HIGH_STOCK, label="high", color="C3")
     # plotter.add_horizontal_line(CRUSHER_LOW_STOCK, label="low", color="C2")
-    # plotter.add_horizontal_line(GRINDER_HIGH_STOCK, label="high", color="C3")
-    # plotter.add_horizontal_line(GRINDER_LOW_STOCK, label="low", color="C2")
+    plotter.add_horizontal_line(GRINDER_HIGH_STOCK, label="high", color="C3")
+    plotter.add_horizontal_line(GRINDER_LOW_STOCK, label="low", color="C2")
 
     plotter.plot_mode_changes()
     figure_path = plotter.render(

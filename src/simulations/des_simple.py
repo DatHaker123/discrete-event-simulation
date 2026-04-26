@@ -23,12 +23,12 @@ def simple_simulation(visualize: bool = False) -> Engine:
 
     delay = DelayComponent("delay", UniformDistribution(0, 10), capacity=1000)
     sink = SinkComponent("sink")
-    source.output_to(delay)
-    delay.output_to(sink)
 
     engine.add_component(source)
     engine.add_component(delay)
     engine.add_component(sink)
+    engine.connect(source, delay)
+    engine.connect(delay, sink)
     engine.run()
     return engine
 

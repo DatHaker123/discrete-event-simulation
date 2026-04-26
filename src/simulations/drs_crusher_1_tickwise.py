@@ -136,11 +136,10 @@ def drs_crusher_simulation(visualize: bool = False) -> Engine:
 
     sink = SinkComponent("sink", track_state=False)
 
-    source.output_to(crusher)
-    crusher.output_to(sink)
-
     for c in (source, crusher, sink):
         engine.add_component(c)
+    engine.connect(source, crusher)
+    engine.connect(crusher, sink)
 
     engine.run()
     return engine

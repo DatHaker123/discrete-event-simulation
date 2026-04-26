@@ -1,7 +1,6 @@
 from __future__ import annotations
 
-from abc import ABC, abstractmethod
-from copy import deepcopy
+from abc import ABC
 from typing import Any, Callable
 
 from .context import SimulationContext
@@ -19,7 +18,9 @@ class Component(ABC):
     """
     Abstract base for every simulation component.
 
-    Subclasses register handlers by event type and implement connection management.
+    Subclasses register handlers by event type.
+    Topology is engine-owned: only ``Engine.connect`` / ``Engine.disconnect`` mutate links.
+    Components expose read-only ``inputs`` / ``outputs`` views backed by private lists.
     Every component exposes mutable ``state`` and optional ``state_history`` snapshots.
     When ``track_state`` is enabled, ``handle_event`` records a shallow copy of
     ``state`` after each successful handler call.
@@ -32,8 +33,9 @@ class Component(ABC):
 
     def __init__(self, component_id: str, type: str, track_state: bool = False):
         self.component_id = component_id
-        self.outputs = []
-        self.inputs = []
+        # Topology is stored locally for fast reads, but must only be mutated by Engine.
+        self._outputs: list[Component] = []
+        self._inputs: list[Component] = []
         self.type = type
         self.track_state = track_state
         self.state: ComponentState = {}
@@ -59,15 +61,31 @@ class Component(ABC):
         t = engine.get_current_time()
         self.state_history.append((t, dict(self.state)))
 
-    @abstractmethod
-    def output_to(self, other: "Component") -> None:
-        # Connect this component's output to the other component's input
-        pass
+    def _engine_add_output(self, other: "Component") -> None:
+        # Topology is engine-owned, use engine.connect to add a link.
+        self._outputs.append(other)
 
-    @abstractmethod
-    def disconnect_output_to(self, other: "Component") -> None:
-        # Disconnect this component's output from the other component's input
-        pass
+    def _engine_remove_output(self, other: "Component") -> None:
+        # Topology is engine-owned, use engine.disconnect to remove a link.
+        self._outputs.remove(other)
+
+    def _engine_add_input(self, other: "Component") -> None:
+        # Topology is engine-owned, use engine.connect to add a link.
+        self._inputs.append(other)
+
+    def _engine_remove_input(self, other: "Component") -> None:
+        # Topology is engine-owned, use engine.disconnect to remove a link.
+        self._inputs.remove(other)
+
+    @property
+    def outputs(self) -> tuple["Component", ...]:
+        """Read-only downstream view. Mutations must go through ``Engine.connect``."""
+        return tuple(self._outputs)
+
+    @property
+    def inputs(self) -> tuple["Component", ...]:
+        """Read-only upstream view. Mutations must go through ``Engine.connect``."""
+        return tuple(self._inputs)
 
     def set_handleable_event(self, event_type: str, handler: EventHandler) -> None:
         self.handleable_events[event_type] = handler
@@ -90,40 +108,32 @@ class SingleIOComponent(Component):
     that forwards ``event.entity`` to the connected output as an ``Arrival``.
     """
 
-    def output_to(self, other: "Component") -> None:
-        if len(self.outputs) > 0:
-            raise ValueError(f"Component {self.component_id} is already connected to {self.outputs[0].component_id}")
-        self.outputs.append(other)
-        other.inputs.append(self)
-        self.log.info(f"Component {self.component_id} connected to {other.component_id}")
-
-    def disconnect_output_to(self, other: "Component") -> None:
-        if other not in self.outputs:
-            raise ValueError(f"Component {self.component_id} is not connected to {other.component_id}")
-        self.outputs.remove(other)
-        other.inputs.remove(self)
-        self.log.info(f"Component {self.component_id} disconnected from {other.component_id}")
-
     @property
     def output(self) -> "Component":
         # Return the first connected component that is an output
-        if len(self.outputs) == 0:
+        outputs = self.outputs
+        if len(outputs) == 0:
             raise ValueError(f"Component {self.component_id} has no outputs")
-        return self.outputs[0]
+        if len(outputs) > 1:
+            raise ValueError(f"Component {self.component_id} expects a single output but has {len(outputs)}")
+        return outputs[0]
 
     @property
     def input(self) -> "Component":
         # Return the first connected component that is an input
-        if len(self.inputs) == 0:
+        inputs = self.inputs
+        if len(inputs) == 0:
             raise ValueError(f"Component {self.component_id} has no inputs")
-        return self.inputs[0]
+        if len(inputs) > 1:
+            raise ValueError(f"Component {self.component_id} expects a single input but has {len(inputs)}")
+        return inputs[0]
 
     def default_handle_departure(self, ctx: SimulationContext) -> None:
         engine = ctx.engine
         event = ctx.event
         current_time = engine.get_current_time()
         self.log.info("Default Departure event received", extra={"sim_time": current_time})
-        arrival_event = Event(current_time, self.output.component_id, "Arrival", deepcopy(event.entity), {})
+        arrival_event = Event(current_time, self.output.component_id, "Arrival", event.entity, {})
         engine.add_event(arrival_event)
 
 
@@ -165,7 +175,6 @@ class SourceComponent(SingleIOComponent):
 
     def default_handle_generate(self, ctx: SimulationContext) -> None:
         engine = ctx.engine
-        component = ctx.component
         current_time = engine.get_current_time()
         self.log.info("Default Generate event received", extra={"sim_time": current_time})
         entity = self.entity_generator(ctx)
@@ -178,7 +187,7 @@ class SourceComponent(SingleIOComponent):
             next_generate_event = Event(next_time, self.component_id, "Generate", {}, {})
             engine.add_event(next_generate_event)
 
-        departure_event = Event(current_time, self.component_id, "Departure", deepcopy(entity), {})
+        departure_event = Event(current_time, self.component_id, "Departure", entity, {})
         engine.add_event(departure_event)
 
 
@@ -205,7 +214,7 @@ class SinkComponent(SingleIOComponent):
         event = ctx.event
         current_time = engine.get_current_time()
         self.log.info("Arrival event received, adding to records", extra={"sim_time": current_time})
-        self.records.append((current_time, deepcopy(event.entity)))
+        self.records.append((current_time, event.entity))
 
 
 class DelayComponent(SingleIOComponent):
@@ -247,7 +256,7 @@ class DelayComponent(SingleIOComponent):
         self.log.info("Arrival event received", extra={"sim_time": current_time, "delay": delay, "count": self.count})
 
         next_time = current_time + delay
-        delayed_entity = deepcopy(event.entity)
+        delayed_entity = event.entity
         self.content.append((next_time, delayed_entity))
         next_departure_event = Event(next_time, self.component_id, "Departure", delayed_entity, {})
         engine.add_event(next_departure_event)
@@ -312,7 +321,7 @@ class AssertComponent(SingleIOComponent):
             )
             self.fail_handler(ctx)
         else:
-            arrival_event = Event(current_time, self.output.component_id, "Arrival", deepcopy(event.entity), {})
+            arrival_event = Event(current_time, self.output.component_id, "Arrival", event.entity, {})
             engine.add_event(arrival_event)
 
 
@@ -342,3 +351,88 @@ class TransformerComponent(SingleIOComponent):
         transformed_entity = self.transform_function(ctx)
         departure_event = Event(current_time, self.component_id, "Departure", transformed_entity, {})
         engine.add_event(departure_event)
+
+
+class ConvergerComponent(Component):
+    """
+    Minimal converger for DES flows.
+
+    Accepts arrivals from many upstream components and forwards entities directly to a
+    single downstream output at the same simulation time.
+    """
+
+    def __init__(self, component_id: str, track_state: bool = False):
+        super().__init__(component_id, "Converger", track_state=track_state)
+        self.set_handleable_event("Arrival", self.handle_arrival)
+
+    @property
+    def output(self) -> "Component":
+        outputs = self.outputs
+        if len(outputs) == 0:
+            raise ValueError(f"Component {self.component_id} has no outputs")
+        if len(outputs) > 1:
+            raise ValueError(f"Converger component {self.component_id} expects a single output but has {len(outputs)}")
+        return outputs[0]
+
+    def handle_arrival(self, ctx: SimulationContext) -> None:
+        engine = ctx.engine
+        event = ctx.event
+        current_time = engine.get_current_time()
+        forwarded = event.entity
+        engine.add_event(Event(current_time, self.output.component_id, "Arrival", forwarded, {}))
+
+
+class SplitterComponent(Component):
+    """
+    Fan-out DES component similar to Transformer, but one input to many outputs.
+
+    ``splitter_function`` receives ``(ctx)`` and returns either:
+      - ``list[Entity]`` / ``tuple[Entity, ...]`` with one payload per output in order, or
+      - ``dict[str, Entity]`` keyed by downstream ``component_id``.
+    """
+
+    def __init__(
+        self,
+        component_id: str,
+        splitter_function: Callable[[SimulationContext], list[Entity] | tuple[Entity, ...] | dict[str, Entity]],
+        track_state: bool = False,
+    ):
+        super().__init__(component_id, "Splitter", track_state=track_state)
+        self.splitter_function = splitter_function
+        self.set_handleable_event("Arrival", self.handle_arrival)
+
+    @property
+    def input(self) -> "Component":
+        if len(self.inputs) == 0:
+            raise ValueError(f"Component {self.component_id} has no inputs")
+        if len(self.inputs) > 1:
+            raise ValueError(f"Splitter component {self.component_id} expects a single input but has {len(self.inputs)}")
+        return self.inputs[0]
+
+    def handle_arrival(self, ctx: SimulationContext) -> None:
+        engine = ctx.engine
+        current_time = engine.get_current_time()
+        outputs = list(self.outputs)
+        if not outputs:
+            raise ValueError(f"Splitter component {self.component_id} has no outputs")
+
+        split_result = self.splitter_function(ctx)
+        if isinstance(split_result, dict):
+            for out in outputs:
+                if out.component_id not in split_result:
+                    continue
+                engine.add_event(
+                    Event(current_time, out.component_id, "Arrival", split_result[out.component_id], {})
+                )
+            return
+
+        if not isinstance(split_result, (list, tuple)):
+            raise ValueError(
+                f"Splitter component {self.component_id} expected list/tuple/dict from splitter_function, got {type(split_result)}"
+            )
+        if len(split_result) != len(outputs):
+            raise ValueError(
+                f"Splitter component {self.component_id} produced {len(split_result)} entities for {len(outputs)} outputs"
+            )
+        for out, entity in zip(outputs, split_result):
+            engine.add_event(Event(current_time, out.component_id, "Arrival", entity, {}))

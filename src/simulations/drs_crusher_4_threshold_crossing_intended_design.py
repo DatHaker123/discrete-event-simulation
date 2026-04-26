@@ -136,12 +136,11 @@ def drs_crusher_simulation(visualize: bool = False) -> Engine:
     sink.set_handleable_event("RateUpdate", sink.sink_handle_arrival)
 
     # --- Topology and registration ---
-    source.output_to(crusher)
-    crusher.output_to(converter)
-    converter.output_to(sink)
-
     for c in (source, crusher, converter, sink):
         engine.add_component(c)
+    engine.connect(source, crusher)
+    engine.connect(crusher, converter)
+    engine.connect(converter, sink)
 
     # --- Run ---
     engine.run()

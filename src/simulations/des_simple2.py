@@ -57,14 +57,14 @@ def simple_simulation(visualize: bool = False) -> Engine:
     transformer.state["token_count"] = 0
 
     sink = SinkComponent("sink")
-    source.output_to(delay)
-    delay.output_to(transformer)
-    transformer.output_to(sink)
 
     engine.add_component(source)
     engine.add_component(delay)
     engine.add_component(transformer)
     engine.add_component(sink)
+    engine.connect(source, delay)
+    engine.connect(delay, transformer)
+    engine.connect(transformer, sink)
     engine.run()
     return engine
 

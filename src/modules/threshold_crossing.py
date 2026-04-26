@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import os
-from copy import deepcopy
 from typing import Any, Callable, Literal
 
 from src.core.components import SingleIOComponent, SourceComponent
@@ -130,7 +129,7 @@ def get_default_rate_update_handler(
         payload: dict[str, Any] = {
             "rate_tph": out_rate,
             "mode": selected_mode.name,
-            "name": deepcopy(ctx.event.entity.get("name", "")),
+            "name": ctx.event.entity.get("name", ""),
             level_key: float(st[level_key]),
             in_rate_key: float(st[in_rate_key]),
         }
@@ -171,7 +170,7 @@ class RateSourceComponent(SourceComponent):
 
     def forward_departure_as_update(self, ctx: SimulationContext) -> None:
         t = ctx.engine.get_current_time()
-        payload = deepcopy(ctx.event.entity)
+        payload = ctx.event.entity
         ctx.engine.add_event(
             Event(
                 t,
@@ -208,7 +207,7 @@ class RateSchedulerComponent(SingleIOComponent, HasOperationModeManager):
 
     def handle_rate_departure(self, ctx: SimulationContext) -> None:
         now = ctx.engine.get_current_time()
-        ctx.engine.add_event(Event(now, self.output.component_id, "RateUpdate", deepcopy(ctx.event.entity), {}))
+        ctx.engine.add_event(Event(now, self.output.component_id, "RateUpdate", ctx.event.entity, {}))
 
 
 class RateTransformerComponent(SingleIOComponent):
@@ -232,9 +231,9 @@ class RateTransformerComponent(SingleIOComponent):
 
     def handle_rate_update(self, ctx: SimulationContext) -> None:
         now = ctx.engine.get_current_time()
-        transformed_entity = deepcopy(self.transform_function(ctx))
+        transformed_entity = self.transform_function(ctx)
         ctx.engine.add_event(Event(now, self.component_id, "Departure", transformed_entity, {}))
 
     def handle_rate_departure(self, ctx: SimulationContext) -> None:
         now = ctx.engine.get_current_time()
-        ctx.engine.add_event(Event(now, self.output.component_id, "RateUpdate", deepcopy(ctx.event.entity), {}))
+        ctx.engine.add_event(Event(now, self.output.component_id, "RateUpdate", ctx.event.entity, {}))

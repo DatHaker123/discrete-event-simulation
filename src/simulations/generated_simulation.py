@@ -34,12 +34,11 @@ def generated_simulation(visualize: bool = False) -> Engine:
     delay_2 = DelayComponent('delay_2', ConstantDistribution(1), capacity=1000, track_state=False)
     sink_3 = SinkComponent('sink_3', track_state=False)
 
-    source_1.output_to(delay_2)
-    delay_2.output_to(sink_3)
-
     engine.add_component(source_1)
     engine.add_component(delay_2)
     engine.add_component(sink_3)
+    engine.connect(source_1, delay_2)
+    engine.connect(delay_2, sink_3)
 
     engine.run()
     return engine

@@ -28,7 +28,7 @@ See *Discrete simulation styles* below for a concise comparison.
 
 **Event versions** are aimed at DRS-style queues: they invalidate **already-queued** work when the “rate” or schedule implied by past scheduling is no longer valid. They are **not** required for a purely DES formulation where the queue only ever contains events you still intend to process.
 
-- **Components** (`src/core/components.py`): Register handlers per event type. Each handler receives a **`SimulationContext`** object (`engine`, `event`, `component`) so you can use `component.state`, `component.output`, etc. without capturing the component in a closure.
+- **Components** (`src/core/components.py`): Register handlers per event type. Each handler receives a **`SimulationContext`** object (`engine`, `event`, `component`) so you can use `component.state`, `component.output`, etc. without capturing the component in a closure. `SimulationContext` also exposes `entity` as an alias for `event.entity`.
 - **Output**: Logs under `output/` (and optionally console). With `visualize=True`, each run can write a UUID-named PDF (graph + queue per step). CLI simulation scripts expose this as opt-in via `--viz` (default off). Sinks keep `records`; **`get_records_as_printable_string`** (`src/modules/stats.py`) formats sink tables and optional **state history**.
 
 ### `src.core` public exports
@@ -56,7 +56,7 @@ discrete-event-simulation/
 │   ├── sim.log
 │   └── <uuid>.pdf
 └── src/
-    ├── run.py              # Central CLI runner (--file, --viz, --plot, shared reporting)
+    ├── run.py              # Central CLI runner (--file, --viz, --plot); simulations own post-run output
     ├── core/               # DES core: engine, events, components
     │   ├── __init__.py     # Re-exports public API
     │   ├── engine.py       # queue, run(); stamps event.version from target component
@@ -68,10 +68,11 @@ discrete-event-simulation/
     │   ├── utils.py
     │   ├── operation_mode.py    # OperationMode, triggers, mode manager mixin/factory
     │   ├── threshold_crossing.py # Rate components + threshold-crossing helper factories
+    │   ├── sim_output.py     # RunOptions + SimulationPlot (simulation-owned plotting helpers)
     │   └── visualization.py
     └── simulations/
-        ├── simple.py                 # source → delay → sink
-        ├── simple2.py                # source → delay → transformer → sink
+        ├── des_simple.py             # source → delay → sink
+        ├── des_simple2.py            # source → delay → transformer → sink
         ├── drs_crusher_1_tickwise.py
         ├── drs_crusher_2_tickwise_with_operation_mode.py
         ├── drs_crusher_5_tickwise_two_stage_with_operation_mode.py
@@ -108,7 +109,7 @@ discrete-event-simulation/
 
 - **`add_component` / `remove_component`** — Register components by **`component_id`** (must match **`handler_id`** on events).
 
-- **`add_event(event)`** — Sets **`event.version`** from the registered component with **`component_id == event.handler_id`**, or **`0`** if none (e.g. **`"End"`**), then pushes onto the priority queue.
+- **`add_event(event)`** — Deep-copies **`event.entity`** (payload isolation), sets **`event.version`** from the registered component with **`component_id == event.handler_id`** (or **`0`** if none, e.g. **`"End"`**), then pushes onto the priority queue.
 
 - **`run(on_step=None)`** — Drains the queue. For each event (except **`"End"`**, which stops the loop): resolve the target component; if **`event.version < component.version`**, skip without calling handlers or **`on_step`**. Otherwise dispatches **`component.handle_event(self, event)`** for events that pass the time-limit filter. Optional **`on_step(sim_time, event, queue_snapshot)`** after each **dispatched** step (and once for initial state when visualization or **`on_step`** is used).
 
@@ -122,7 +123,7 @@ discrete-event-simulation/
 
 #### Base: `Component(component_id, type, track_state=False)`
 
-- **`outputs` / `inputs`** — Wiring lists (**`SingleIOComponent`** enforces a single downstream for the main chain).
+- **`outputs` / `inputs`** — Read-only tuple views of downstream/upstream components. Topology is engine-owned and mutates only via **`engine.connect(...)`** / **`engine.disconnect(...)`**.
 - **`state`**: `dict[str, Any]` — per-component mutable state.
 - **`state_history`**: When **`track_state=True`**, after each successful handler, append **`(sim_time, dict(state))`** (shallow copy of **`state`**).
 - **`set_handleable_event(event_type, handler)`** — Registers an **`EventHandler`**.
@@ -139,7 +140,8 @@ Event(t, component.output.component_id, "Arrival", entity_dict, {})
 
 #### `SingleIOComponent`
 
-- **`output_to(other)` / `disconnect_output_to(other)`** — At most one primary output; **`output`** property returns that peer.
+- Uses engine-owned topology with **`engine.connect(c1, c2)`**.  
+  For single-IO blocks, **`output`** and **`input`** expect exactly one downstream/upstream peer.
 - **`default_handle_departure(ctx)`** — Schedules **`Arrival`** at **`output.component_id`** with the same logical payload as **`event.entity`**.
 
 #### `SourceComponent(component_id, entity_generator, interval=None, track_state=False)`
@@ -222,13 +224,13 @@ Example simulation using the intended split design:
 ## Building a simulation
 
 1. Create **`Engine`** (optional **`time_limit`**, **`visualize`**, **`output_dir`**). Optionally fill **`engine.simulation_variables`**.
-2. Instantiate components; wire with **`output_to`**.
+2. Instantiate components.
 3. **`engine.add_component(...)`** for each block (IDs must match event **`handler_id`**s).
 4. Add startup events with **`engine.add_startup_event(...)`**.
 5. **`engine.run()`**.
 6. Inspect **`get_records_as_printable_string(engine.get_results())`** or component **`state`** / **`state_history`**.
 
-Minimal example (see **`src/simulations/simple.py`**):
+Minimal example (see **`src/simulations/des_simple.py`**):
 
 ```python
 from src.core import DelayComponent, Engine, Event, SinkComponent, SourceComponent
@@ -244,10 +246,10 @@ source = SourceComponent(
 )
 delay = DelayComponent("delay", UniformDistribution(0, 10), capacity=1000)
 sink = SinkComponent("sink")
-source.output_to(delay)
-delay.output_to(sink)
 for c in (source, delay, sink):
     engine.add_component(c)
+engine.connect(source, delay)
+engine.connect(delay, sink)
 engine.run()
 print(get_records_as_printable_string(engine.get_results()))
 ```
@@ -294,7 +296,7 @@ When **`visualize=True`**, **`run()`** builds a **`Visualizer`**, calls **`add_f
 
 ## Extending
 
-- **Custom components**: Subclass **`Component`** or **`SingleIOComponent`**, implement **`output_to` / `disconnect_output_to`**, register handlers with **`set_handleable_event`**, schedule events with **`engine.add_event(...)`**. Use **`Entity`** (**`dict[str, Any]`**) for payloads.
+- **Custom components**: Subclass **`Component`** or **`SingleIOComponent`**, register handlers with **`set_handleable_event`**, schedule events with **`engine.add_event(...)`**, and rely on engine-owned wiring via **`engine.connect(...)`**. Use **`Entity`** (**`dict[str, Any]`**) for payloads.
 - **Epochs / `Component.advance_version`**: **DRS-layer** tool when a discrete-rate-style model has obsolete future events **for a given handler** in the queue; **DES-only** models can usually rely on explicit scheduling alone (see the introduction).
 - **Replace or wrap a default handler**: After construction, **`set_handleable_event("Arrival", my_handler)`**. Inside **`my_handler`**, call the original public method on the instance with a proper `SimulationContext` so pre/post logic composes cleanly.
 - **Custom distributions**: Subclass **`Distribution`** in **`src/modules/utils.py`** and implement **`sample() -> float`**.
@@ -305,7 +307,8 @@ When **`visualize=True`**, **`run()`** builds a **`Visualizer`**, calls **`add_f
 ## Running the examples
 
 Use the central runner to execute any simulation module and share one set of CLI flags for
-visualization, plotting, logging, and post-processing output.
+visualization, plotting, and logging. What gets printed/plotted is defined by each simulation
+via `post_run(...)` (or `simulation_post_run(...)`).
 
 By default, **`--file`** is resolved under **`src/simulations`**. These are equivalent:
 
@@ -318,14 +321,14 @@ uv run python -m src.run --file src/simulations/drs_crusher_4_threshold_crossing
 From the project root:
 
 ```bash
-uv run python -m src.run --file src/simulations/simple.py
+uv run python -m src.run --file src/simulations/des_simple.py
 ```
 
 ```bash
-uv run python -m src.run --file src/simulations/simple2.py
+uv run python -m src.run --file src/simulations/des_simple2.py
 ```
 
-DRS stockpile / crusher (inline thresholds). Pass **`--viz`** to generate visualization PDF frames and **`--plot`** to write a UUID-named PNG under **`output/`**. For two-stage models, `--plot` also accepts an optional target (`crusher` or `grinder`):
+DRS stockpile / crusher (inline thresholds). Pass **`--viz`** to generate visualization PDF frames and **`--plot`** to enable simulation-defined plotting (for example, a UUID-named PNG under **`output/`**):
 
 ```bash
 uv run python -m src.run --file src/simulations/drs_crusher_1_tickwise.py
@@ -343,8 +346,6 @@ uv run python -m src.run --file src/simulations/drs_crusher_2_tickwise_with_oper
 # Two-stage variant: source -> crusher -> grinder -> sink (plot focuses on grinder stockpile)
 uv run python -m src.run --file drs_crusher_5_tickwise_two_stage_with_operation_mode.py
 uv run python -m src.run --file drs_crusher_5_tickwise_two_stage_with_operation_mode.py --plot
-uv run python -m src.run --file drs_crusher_5_tickwise_two_stage_with_operation_mode.py --plot crusher
-uv run python -m src.run --file drs_crusher_5_tickwise_two_stage_with_operation_mode.py --plot grinder
 ```
 
 Threshold-crossing reference runs:
@@ -356,6 +357,7 @@ uv run python -m src.run --file src/simulations/drs_crusher_4_threshold_crossing
 ```
 
 `src.run` also supports **`--function`** to select a specific callable, and logging controls such
-as **`--log-level`**, **`--log-file`**, and **`--console`**.
+as **`--log-level`**, **`--log-file`**, and **`--console`**. The **`--plot`** flag is boolean only;
+plot targets and plotted metrics are simulation-owned.
 
 These examples typically write **`output/sim.log`**. Add **`--viz`** to produce a UUID **`output/*.pdf`** for that run.

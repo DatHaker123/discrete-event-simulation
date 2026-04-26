@@ -820,12 +820,12 @@
           }
         });
         lines.push("");
+        nodes.forEach((node) => lines.push(`    engine.add_component(${varByNodeId.get(node.id)})`));
+        lines.push("");
         connections.forEach((conn) => {
           const outVar = varByNodeId.get(conn.outNode); const inVar = varByNodeId.get(conn.inNode);
-          if (outVar && inVar) lines.push(`    ${outVar}.output_to(${inVar})`);
+          if (outVar && inVar) lines.push(`    engine.connect(${outVar}, ${inVar})`);
         });
-        lines.push("");
-        nodes.forEach((node) => lines.push(`    engine.add_component(${varByNodeId.get(node.id)})`));
         lines.push("", "    engine.run()", "    return engine", "", "", 'if __name__ == "__main__":');
         lines.push(`    setup_logging(log_file=${pyQuote(logFile)}, output_dir=${pyQuote(outputDir)})`);
         lines.push(`    ${simFnName}(visualize=${boolPy(defaultVisualize)})`, "");

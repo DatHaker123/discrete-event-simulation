@@ -3,7 +3,9 @@
 from .components import (
     AssertComponent,
     Component,
+    ConvergerComponent,
     DelayComponent,
+    SplitterComponent,
     SinkComponent,
     SingleIOComponent,
     SourceComponent,
@@ -16,6 +18,7 @@ from .events import Entity, Event, priority_for_event_type
 __all__ = [
     "AssertComponent",
     "Component",
+    "ConvergerComponent",
     "DelayComponent",
     "Engine",
     "Entity",
@@ -24,6 +27,7 @@ __all__ = [
     "SimulationContext",
     "SingleIOComponent",
     "SinkComponent",
+    "SplitterComponent",
     "SourceComponent",
     "TransformerComponent",
     "priority_for_event_type",
