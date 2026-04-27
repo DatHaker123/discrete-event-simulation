@@ -5,6 +5,8 @@ Python framework for building and running:
 - **DRS tickwise**: rate/inventory updates at fixed discrete ticks,
 - **DRS threshold-crossing**: sparse control events predicted from piecewise-constant dynamics.
 
+License: **MIT** (see `LICENSE`).
+
 ---
 
 ## 1) Clone and setup
