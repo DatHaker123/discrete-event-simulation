@@ -91,7 +91,7 @@ discrete-event-simulation/
   - **`time`**: Simulation time when the event is processed.
   - **`handler_id`**: `component_id` of the component that handles it.
   - **`type`**: String (`"Generate"`, `"Arrival"`, `"Departure"`, `"RateUpdate"`, `"ModeChange"`, `"End"`, …) — selects the handler and, with `priority_for_event_type()`, orders same-time events.
-  - **`entity`**: **`Entity`**. Use **`{}`** when no fields are needed (e.g. startup **`Generate`** before the source fills it; internal **`End`** event). The **`Generate`** event’s **`entity`** is ignored by **`SourceComponent.default_handle_generate`** when an **`entity_generator`** is supplied — the generated dict becomes the **`Departure`** payload.
+  - **`entity`**: **`Entity`**. Use **`{}`** when no fields are needed (e.g. startup **`Generate`** before the source fills it; internal **`End`** event). The **`Generate`** event’s **`entity`** is ignored by **`SourceComponent.source_handle_generate`** when an **`entity_generator`** is supplied — the generated dict becomes the **`Departure`** payload.
   - **`kwargs`**: Reserved for future use (plain `dict` in the dataclass).
   - **`version`**: Snapshot of the **target** component’s **`version`** when the event enters the queue ( **`add_event`** overwrites the dataclass default). Stale when **`event.version < component.version`** for **`handler_id`**. A **DRS-layer** feature; DES-only models often never bump the component version (see the introduction above).
 
@@ -112,6 +112,7 @@ discrete-event-simulation/
 - **`add_event(event)`** — Deep-copies **`event.entity`** (payload isolation), sets **`event.version`** from the registered component with **`component_id == event.handler_id`** (or **`0`** if none, e.g. **`"End"`**), then pushes onto the priority queue.
 
 - **`run(on_step=None)`** — Drains the queue. For each event (except **`"End"`**, which stops the loop): resolve the target component; if **`event.version < component.version`**, skip without calling handlers or **`on_step`**. Otherwise dispatches **`component.handle_event(self, event)`** for events that pass the time-limit filter. Optional **`on_step(sim_time, event, queue_snapshot)`** after each **dispatched** step (and once for initial state when visualization or **`on_step`** is used).
+- **Implicit queue-credit bootstrap** — At run start, engine auto-enqueues initial **`QueueCredit`** events for `HasQueue` servers that have `queue_component_id` configured (default credits policy: server `capacity` if present, else `1`).
 
 - **`get_current_time()`** — Current simulation time after the last processed event.
 
@@ -127,7 +128,8 @@ discrete-event-simulation/
 - **`state`**: `dict[str, Any]` — per-component mutable state.
 - **`state_history`**: When **`track_state=True`**, after each successful handler, append **`(sim_time, dict(state))`** (shallow copy of **`state`**).
 - **`set_handleable_event(event_type, handler)`** — Registers an **`EventHandler`**.
-- **`handle_event(engine, event)`** — Invokes the handler for **`event.type`**, then records state history if **`track_state`**.
+- **`set_state_updater(updater)`** — Optional simulation-level hook (`Callable[[SimulationContext], None]`) called right before snapshot capture.
+- **`handle_event(engine, event)`** — Invokes the handler for **`event.type`**, runs optional state updater, then records state history if **`track_state`**.
 - **`version`** (read-only) / **`advance_version() -> int`** — Per-component epoch; **`add_event`** copies **`version`** onto each event targeting this **`component_id`**. Call **`advance_version()`** on this instance to invalidate queued events for this handler only (**DRS**); **DES-only** models often never call it.
 
 **`EventHandler`**: `Callable[[SimulationContext], None]`
@@ -142,18 +144,18 @@ Event(t, component.output.component_id, "Arrival", entity_dict, {})
 
 - Uses engine-owned topology with **`engine.connect(c1, c2)`**.  
   For single-IO blocks, **`output`** and **`input`** expect exactly one downstream/upstream peer.
-- **`default_handle_departure(ctx)`** — Schedules **`Arrival`** at **`output.component_id`** with the same logical payload as **`event.entity`**.
+- **`singleio_handle_departure(ctx)`** — Schedules **`Arrival`** at **`output.component_id`** with the same logical payload as **`event.entity`**.
 
 #### `SourceComponent(component_id, entity_generator, interval=None, track_state=False)`
 
 - **`entity_generator(ctx) -> Entity`** — Called on each **`Generate`**. Return value becomes the entity on the internal same-time **`Departure`**, then forwarded downstream as **`Arrival`**. The **`entity`** field on the **`Generate`** event itself is not used by the default source logic.
 - **`interval`**: If set (**`Distribution`**), schedules the next **`Generate`** on self at **`now + interval.sample()`**. If **`None`**, only startup events added via **`engine.add_startup_event(...)`** (or manually queued **`Generate`**) drive output.
-- Flow: **`Generate`** → **`Departure`** (self, entity from generator) → **`Arrival`** (output). **`default_handle_generate`** also schedules the next **`Generate`** with **`entity={}`** when **`interval`** is set.
+- Flow: **`Generate`** → **`Departure`** (self, entity from generator) → **`Arrival`** (output). **`source_handle_generate`** also schedules the next **`Generate`** with **`entity={}`** when **`interval`** is set.
 
 #### `DelayComponent(component_id, delay_interval, capacity=1, track_state=False)`
 
 - **`Arrival`**: Samples delay, queues **`Departure`** at **`now + delay`**, stores **`(departure_time, entity)`** in **`content`**.
-- **`Departure`**: Removes matching **`(time, entity)`**, then **`default_handle_departure`**.
+- **`Departure`**: Removes matching **`(time, entity)`**, then **`singleio_handle_departure`**.
 
 #### `SinkComponent(component_id, track_state=False)`
 
@@ -165,7 +167,7 @@ Event(t, component.output.component_id, "Arrival", entity_dict, {})
 
 #### `TransformerComponent(component_id, transform_function, track_state=False)`
 
-- **`transform_function(ctx) -> Entity`** — Returns a new **`dict`** payload; a same-time **`Departure`** is scheduled with that entity, then **`default_handle_departure`** forwards it.
+- **`transform_function(ctx) -> Entity`** — Returns a new **`dict`** payload; a same-time **`Departure`** is scheduled with that entity, then **`singleio_handle_departure`** forwards it.
 
 #### `SplitterComponent(component_id, splitter_function, track_state=False)`
 
@@ -173,7 +175,20 @@ Event(t, component.output.component_id, "Arrival", entity_dict, {})
 - Unknown keys raise an error.
 - Omitted downstream IDs are allowed and mean “emit nothing” for that branch on that event.
 
-Default handlers are **public methods** (e.g. **`SourceComponent.default_handle_generate`**) so subclasses or wrappers can delegate. Call them with a proper **`SimulationContext`** for the intended concrete component.
+Default handlers are **public methods** (e.g. **`SourceComponent.source_handle_generate`**) so subclasses or wrappers can delegate. Call them with a proper **`SimulationContext`** for the intended concrete component.
+
+### Queue handshake (`src/core/queue.py`)
+
+- **`QueueComponent`** uses explicit pull/credit flow:
+  - `Arrival` enqueues entity
+  - `QueueCredit` increases `ready_credits`
+  - dispatch reservation schedules self `Departure`
+  - actual buffer pop happens in `queue_handle_departure` (not in reservation step)
+- **`HasQueue`** server mixin:
+  - `set_queue_component_id(queue_id)` links server to upstream queue
+  - departure wrapper emits `QueueCredit` with released credits
+  - supports implicit initial-credit policy via `get_initial_queue_credits(ctx)` / `set_initial_queue_credits_policy(...)`
+- With this model, simulations do not need to manually enqueue startup `QueueCredit` events in the common case.
 
 ---
 
