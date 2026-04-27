@@ -37,7 +37,7 @@ def simple_simulation(visualize: bool = False) -> Engine:
     delay = DelayComponent("delay", UniformDistribution(0, 10), capacity=1000)
 
     def transformation_function(ctx: SimulationContext) -> Entity:
-        original = ctx.event.entity
+        original = ctx.entity
         st = ctx.component.state
         if original["value"] > 5:
             original["value"] = original["value"] - 5

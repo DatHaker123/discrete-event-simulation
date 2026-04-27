@@ -26,6 +26,10 @@ Event types used by the framework/simulations:
 - ``ResourceReleased``:
   Resource-handshake signal used to notify request components that a resource was returned
   to a pool and dispatch can be retried.
+- ``PreAcquireStart`` / ``PreAcquireComplete``:
+  Side-flow control events for resource pre-acquire workflows.
+- ``PostReleaseStart`` / ``PostReleaseComplete``:
+  Side-flow control events for resource post-release workflows.
 - Custom event types:
   Allowed and encouraged for model-specific behavior (for example, maintenance, failures,
   control commands, or domain-specific transitions).
@@ -65,6 +69,10 @@ def priority_for_event_type(event_type: str) -> int:
     Current built-in mapping:
     - ``QueueCredit`` -> 0
     - ``ResourceReleased`` -> 0
+    - ``PreAcquireStart`` -> 0
+    - ``PreAcquireComplete`` -> 0
+    - ``PostReleaseStart`` -> 0
+    - ``PostReleaseComplete`` -> 0
     - ``RateUpdate`` -> 1 
     - ``ModeChange`` -> 1
     - ``Generate`` -> 2
@@ -74,6 +82,14 @@ def priority_for_event_type(event_type: str) -> int:
     if event_type == "QueueCredit":
         return 0
     elif event_type == "ResourceReleased":
+        return 0
+    elif event_type == "PreAcquireStart":
+        return 0
+    elif event_type == "PreAcquireComplete":
+        return 0
+    elif event_type == "PostReleaseStart":
+        return 0
+    elif event_type == "PostReleaseComplete":
         return 0
     elif event_type == "RateUpdate":
         return 1

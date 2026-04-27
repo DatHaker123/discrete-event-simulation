@@ -94,7 +94,7 @@ crusher_rate_update_handler = get_default_rate_update_handler(
 
 def convert_rate_a_to_rate_b(ctx: SimulationContext) -> dict[str, Any]:
     """Pure conversion stage: map upstream rate A to downstream rate B."""
-    input_rate = float(ctx.event.entity.get("rate_tph", 0.0))
+    input_rate = float(ctx.entity.get("rate_tph", 0.0))
     return {
         "name": "crushed ore",
         "rate_tph": input_rate * RATE_CONVERSION_MULTIPLIER,

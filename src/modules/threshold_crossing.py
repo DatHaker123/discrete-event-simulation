@@ -112,8 +112,8 @@ def get_default_rate_update_handler(
 
         advance_state(ctx)
 
-        if ctx.event.type == "RateUpdate" and incoming_rate_entity_key in ctx.event.entity:
-            st[in_rate_key] = float(ctx.event.entity[incoming_rate_entity_key])
+        if ctx.event.type == "RateUpdate" and incoming_rate_entity_key in ctx.entity:
+            st[in_rate_key] = float(ctx.entity[incoming_rate_entity_key])
 
         selected_mode = comp.update_current_mode(ctx)
         if selected_mode is None:
@@ -129,7 +129,7 @@ def get_default_rate_update_handler(
         payload: dict[str, Any] = {
             "rate_tph": out_rate,
             "mode": selected_mode.name,
-            "name": ctx.event.entity.get("name", ""),
+            "name": ctx.entity.get("name", ""),
             level_key: float(st[level_key]),
             in_rate_key: float(st[in_rate_key]),
         }
@@ -170,7 +170,7 @@ class RateSourceComponent(SourceComponent):
 
     def ratesource_handle_departure(self, ctx: SimulationContext) -> None:
         t = ctx.engine.get_current_time()
-        payload = ctx.event.entity
+        payload = ctx.entity
         ctx.engine.add_event(
             Event(
                 t,
@@ -207,7 +207,7 @@ class RateSchedulerComponent(SingleIOComponent, HasOperationModeManager):
 
     def ratescheduler_handle_departure(self, ctx: SimulationContext) -> None:
         now = ctx.engine.get_current_time()
-        ctx.engine.add_event(Event(now, self.output.component_id, "RateUpdate", ctx.event.entity, {}))
+        ctx.engine.add_event(Event(now, self.output.component_id, "RateUpdate", ctx.entity, {}))
 
 
 class RateTransformerComponent(SingleIOComponent):
@@ -236,4 +236,4 @@ class RateTransformerComponent(SingleIOComponent):
 
     def ratetransformer_handle_departure(self, ctx: SimulationContext) -> None:
         now = ctx.engine.get_current_time()
-        ctx.engine.add_event(Event(now, self.output.component_id, "RateUpdate", ctx.event.entity, {}))
+        ctx.engine.add_event(Event(now, self.output.component_id, "RateUpdate", ctx.entity, {}))

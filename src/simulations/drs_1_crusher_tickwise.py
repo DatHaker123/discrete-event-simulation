@@ -82,7 +82,7 @@ def ore_feed_entity(ctx: SimulationContext) -> Entity:
 
 def crush_transform(ctx: SimulationContext) -> Entity:
     st = ctx.component.state
-    raw_in = float(ctx.event.entity.get("raw_tonnes", 0.0))
+    raw_in = float(ctx.entity.get("raw_tonnes", 0.0))
     stock_before = float(st["stockpile"])
 
     stock_after_feed = stock_before + raw_in

@@ -17,6 +17,7 @@ from src.core import (
     Event,
     FreeResourceComponent,
     RequestResourceComponent,
+    Resource,
     ResourcePool,
     SimulationContext,
     SinkComponent,
@@ -70,7 +71,7 @@ def des_7_resource_bottleneck_simulation(visualize: bool = False) -> Engine:
     truck_pool = ResourcePool(
         pool_id="truck_pool",
         resource_type="truck",
-        resource_generator=lambda: {"max_payload_t": 35},
+        resource_generator=lambda: Resource(data={"max_payload_t": 35}),
         capacity=1,
     )
 
@@ -96,9 +97,9 @@ def des_7_resource_bottleneck_simulation(visualize: bool = False) -> Engine:
     free = FreeResourceComponent(
         "free",
         resource_pool=truck_pool,
-        request_component_ids=["request"],
         track_state=True,
     )
+    request.set_free_component(free)
     free.state = deepcopy(INITIAL_FREE_STATE)
     free.set_state_updater(free_state_updater)
 

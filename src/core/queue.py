@@ -204,11 +204,11 @@ class QueueComponent(SingleIOComponent):
     def queue_handle_arrival(self, ctx: SimulationContext) -> None:
         if self.max_length is not None and len(self.buffer) >= self.max_length:
             raise ValueError(f"Queue component {self.component_id} is full (max_length={self.max_length})")
-        self.buffer.append(ctx.event.entity)
+        self.buffer.append(ctx.entity)
         self._attempt_dispatch(ctx)
 
     def queue_handle_queuecredit(self, ctx: SimulationContext) -> None:
-        credits = int(ctx.event.entity.get("credits", 1))
+        credits = int(ctx.entity.get("credits", 1))
         if credits <= 0:
             return
         self.ready_credits += credits

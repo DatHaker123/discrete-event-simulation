@@ -91,7 +91,7 @@ TransformerComponentWithMode = with_operational_mode(TransformerComponent)
 
 def crusher_transform(ctx: SimulationContext) -> Entity:
     st = ctx.component.state
-    raw_in = float(ctx.event.entity.get("raw_tonnes", 0.0))
+    raw_in = float(ctx.entity.get("raw_tonnes", 0.0))
 
     st["stockpile"] = float(st["stockpile"]) + raw_in
     st["total_in"] = float(st["total_in"]) + raw_in
@@ -116,7 +116,7 @@ def crusher_transform(ctx: SimulationContext) -> Entity:
 
 def grinder_transform(ctx: SimulationContext) -> Entity:
     st = ctx.component.state
-    infeed = float(ctx.event.entity.get("crushed_tonnes", 0.0))
+    infeed = float(ctx.entity.get("crushed_tonnes", 0.0))
 
     st["stockpile"] = float(st["stockpile"]) + infeed
     st["total_in"] = float(st["total_in"]) + infeed
@@ -213,9 +213,9 @@ def post_run(engine: Engine, options: RunOptions, module: object | None = None) 
     print(get_records_as_printable_string(engine.get_results()))
 
     # target_component_id = "crusher"
-    target_statistic_key = "stockpile"
+    # target_statistic_key = "stockpile"
     target_component_id = "grinder"
-    # target_statistic_key = "processed_tonnes_step"
+    target_statistic_key = "processed_tonnes_step"
     target_component = next((c for c in engine.get_results() if c.component_id == target_component_id), None)
 
     # series = state_key_series_from_history(target_component, "stockpile")
@@ -230,10 +230,10 @@ def post_run(engine: Engine, options: RunOptions, module: object | None = None) 
         y_key=target_statistic_key,
         name=f"{target_component_id} {target_statistic_key} vs time",
     )
-    # plotter.add_horizontal_line(CRUSHER_HIGH_STOCK, label="high", color="C3")
-    # plotter.add_horizontal_line(CRUSHER_LOW_STOCK, label="low", color="C2")
-    plotter.add_horizontal_line(GRINDER_HIGH_STOCK, label="high", color="C3")
-    plotter.add_horizontal_line(GRINDER_LOW_STOCK, label="low", color="C2")
+    plotter.add_horizontal_line(CRUSHER_HIGH_STOCK, label="high", color="C3")
+    plotter.add_horizontal_line(CRUSHER_LOW_STOCK, label="low", color="C2")
+    # plotter.add_horizontal_line(GRINDER_HIGH_STOCK, label="high", color="C3")
+    # plotter.add_horizontal_line(GRINDER_LOW_STOCK, label="low", color="C2")
 
     plotter.plot_mode_changes()
     figure_path = plotter.render(

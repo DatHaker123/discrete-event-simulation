@@ -84,7 +84,7 @@ TransformerComponentWithMode = with_operational_mode(TransformerComponent)
 
 def crush_transform(ctx: SimulationContext) -> Entity:
     st = ctx.component.state
-    raw_in = float(ctx.event.entity.get("raw_tonnes", 0.0))
+    raw_in = float(ctx.entity.get("raw_tonnes", 0.0))
 
     # 1) Apply incoming feed first so mode triggers see post-feed stock.
     st["stockpile"] = float(st["stockpile"]) + raw_in

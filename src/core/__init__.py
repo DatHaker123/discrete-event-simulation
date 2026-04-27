@@ -15,7 +15,16 @@ from .context import SimulationContext
 from .engine import Engine, EventQueue
 from .events import Entity, Event, priority_for_event_type
 from .queue import HasQueue, QueueComponent, with_queue
-from .resource import FreeResourceComponent, RequestResourceComponent, ResourcePool
+from .resource import (
+    FreeResourceComponent,
+    PostReleaseSinkComponent,
+    PostReleaseSourceComponent,
+    PreAcquireSinkComponent,
+    PreAcquireSourceComponent,
+    RequestResourceComponent,
+    Resource,
+    ResourcePool,
+)
 
 __all__ = [
     "AssertComponent",
@@ -29,7 +38,12 @@ __all__ = [
     "HasQueue",
     "QueueComponent",
     "FreeResourceComponent",
+    "PreAcquireSourceComponent",
+    "PreAcquireSinkComponent",
+    "PostReleaseSourceComponent",
+    "PostReleaseSinkComponent",
     "RequestResourceComponent",
+    "Resource",
     "ResourcePool",
     "SimulationContext",
     "SingleIOComponent",

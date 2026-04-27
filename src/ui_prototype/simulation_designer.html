@@ -797,7 +797,7 @@
         });
         nodes.filter((n) => n.type === "Transformer").forEach((node) => {
           const p = node.properties || {}; const fnName = `transform_${varByNodeId.get(node.id)}`;
-          lines.push(`def ${fnName}(ctx: SimulationContext):`, "    entity = dict(ctx.event.entity)");
+          lines.push(`def ${fnName}(ctx: SimulationContext):`, "    entity = dict(ctx.entity)");
           const field = String(p.passThroughField || "").trim();
           if (field) lines.push(`    # pass-through key hint: ${field}`);
           lines.push("    return entity", "");

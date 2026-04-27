@@ -91,7 +91,7 @@ MODE_FAST = OperationMode("fast", triggers=[stockpile_high_trigger], data={"crus
 TransformerComponentWithMode = with_operational_mode(TransformerComponent)
 source_handle_departure = get_departure_event_forwarder(
     target_event_type="RateUpdate",
-    payload_factory=lambda ctx: {"rate_tph": float(ctx.event.entity.get("rate_tph", 0.0))},
+    payload_factory=lambda ctx: {"rate_tph": float(ctx.entity.get("rate_tph", 0.0))},
 )
 
 
@@ -138,8 +138,8 @@ def crusher_handle_rateupdate(ctx: SimulationContext) -> None:
     _advance_inventory_to_now(ctx)
 
     # External (upstream) rate update replaces incoming rate.
-    if "rate_tph" in ctx.event.entity:
-        st["incoming_rate_tph"] = float(ctx.event.entity["rate_tph"])
+    if "rate_tph" in ctx.entity:
+        st["incoming_rate_tph"] = float(ctx.entity["rate_tph"])
 
     selected_mode = comp.update_current_mode(ctx)
     if selected_mode is None:
