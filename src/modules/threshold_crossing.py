@@ -166,9 +166,9 @@ class RateSourceComponent(SourceComponent):
         track_state: bool = False,
     ):
         super().__init__(component_id, entity_generator, interval=interval, track_state=track_state)
-        self.set_handleable_event("Departure", self.forward_departure_as_update)
+        self.set_handleable_event("Departure", self.ratesource_handle_departure)
 
-    def forward_departure_as_update(self, ctx: SimulationContext) -> None:
+    def ratesource_handle_departure(self, ctx: SimulationContext) -> None:
         t = ctx.engine.get_current_time()
         payload = ctx.event.entity
         ctx.engine.add_event(
@@ -203,9 +203,9 @@ class RateSchedulerComponent(SingleIOComponent, HasOperationModeManager):
         HasOperationModeManager.__init__(self)
         self.set_handleable_event("RateUpdate", scheduler_handler)
         self.set_handleable_event("ModeChange", scheduler_handler)
-        self.set_handleable_event("Departure", self.handle_rate_departure)
+        self.set_handleable_event("Departure", self.ratescheduler_handle_departure)
 
-    def handle_rate_departure(self, ctx: SimulationContext) -> None:
+    def ratescheduler_handle_departure(self, ctx: SimulationContext) -> None:
         now = ctx.engine.get_current_time()
         ctx.engine.add_event(Event(now, self.output.component_id, "RateUpdate", ctx.event.entity, {}))
 
@@ -226,14 +226,14 @@ class RateTransformerComponent(SingleIOComponent):
     ):
         super().__init__(component_id, "RateTransformer", track_state=track_state)
         self.transform_function = transform_function
-        self.set_handleable_event("RateUpdate", self.handle_rate_update)
-        self.set_handleable_event("Departure", self.handle_rate_departure)
+        self.set_handleable_event("RateUpdate", self.ratetransformer_handle_rateupdate)
+        self.set_handleable_event("Departure", self.ratetransformer_handle_departure)
 
-    def handle_rate_update(self, ctx: SimulationContext) -> None:
+    def ratetransformer_handle_rateupdate(self, ctx: SimulationContext) -> None:
         now = ctx.engine.get_current_time()
         transformed_entity = self.transform_function(ctx)
         ctx.engine.add_event(Event(now, self.component_id, "Departure", transformed_entity, {}))
 
-    def handle_rate_departure(self, ctx: SimulationContext) -> None:
+    def ratetransformer_handle_departure(self, ctx: SimulationContext) -> None:
         now = ctx.engine.get_current_time()
         ctx.engine.add_event(Event(now, self.output.component_id, "RateUpdate", ctx.event.entity, {}))

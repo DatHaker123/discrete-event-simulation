@@ -20,6 +20,9 @@ Event types used by the framework/simulations:
   Control-style event usually self-scheduled by a component to apply a predicted mode
   transition time. In threshold-crossing models this is commonly paired with ``RateUpdate``:
   ``RateUpdate`` updates boundary/input rate, while ``ModeChange`` applies local control changes.
+- ``QueueCredit``:
+  Queue-server handshake signal that grants one dispatch credit to an upstream queue.
+  A queue receiving ``QueueCredit`` may release one buffered entity downstream immediately.
 - Custom event types:
   Allowed and encouraged for model-specific behavior (for example, maintenance, failures,
   control commands, or domain-specific transitions).
@@ -36,7 +39,8 @@ Entity: TypeAlias = dict[str, Any]
 
 @dataclass(slots=True)
 class Event:
-    """Scheduled event routed to ``handler_id`` at ``time`` with model-defined payload in ``entity``."""
+    """Scheduled event routed to ``handler_id`` at ``time`` with model-defined payload in ``entity``.
+    ``kwargs`` is internal, use with caution, just pass empty dict {} 99% of the time"""
 
     time: float
     handler_id: str

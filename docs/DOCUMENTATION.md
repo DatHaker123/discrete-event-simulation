@@ -225,6 +225,11 @@ Specialized components:
 Example simulation using the intended split design:
 **`src/simulations/drs_crusher_4_threshold_crossing_intended_design.py`**.
 
+Compatibility note:
+
+- The old helper **`get_departure_event_forwarder(...)`** was intentionally removed during handler/component cleanup.
+- Older simulations that still import it (for example legacy trace files) are expected to fail until migrated to explicit handler functions or to `RateSourceComponent`.
+
 ---
 
 ## Building a simulation

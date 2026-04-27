@@ -14,6 +14,7 @@ from .components import (
 from .context import SimulationContext
 from .engine import Engine, EventQueue
 from .events import Entity, Event, priority_for_event_type
+from .queue import HasQueue, QueueComponent, with_queue
 
 __all__ = [
     "AssertComponent",
@@ -24,11 +25,14 @@ __all__ = [
     "Entity",
     "Event",
     "EventQueue",
+    "HasQueue",
+    "QueueComponent",
     "SimulationContext",
     "SingleIOComponent",
     "SinkComponent",
     "SplitterComponent",
     "SourceComponent",
     "TransformerComponent",
+    "with_queue",
     "priority_for_event_type",
 ]

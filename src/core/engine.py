@@ -5,6 +5,7 @@ import os
 from copy import deepcopy
 from typing import TYPE_CHECKING, Any, Callable
 
+from .context import SimulationContext
 from .events import Event, priority_for_event_type
 from ..modules.logger import get_logger
 
@@ -63,6 +64,7 @@ class Engine:
         self._current_time = 0.0
         self.log = get_logger("engine")
         self._startup_events: list[Event] = []
+        self._active_event_kwargs_stack: list[dict[str, Any]] = []
         self.visualize = visualize
         self.output_dir = output_dir
         #: User-defined simulation state (counters, parameters, etc.); populate in your model setup.
@@ -71,9 +73,26 @@ class Engine:
     def add_startup_event(self, event: Event) -> None:
         self._startup_events.append(event)
 
+    def _push_active_event_kwargs(self, kwargs: dict[str, Any]) -> None:
+        self._active_event_kwargs_stack.append(deepcopy(kwargs))
+
+    def _pop_active_event_kwargs(self) -> None:
+        if self._active_event_kwargs_stack:
+            self._active_event_kwargs_stack.pop()
+
+    def _current_active_event_kwargs(self) -> dict[str, Any]:
+        if not self._active_event_kwargs_stack:
+            return {}
+        return self._active_event_kwargs_stack[-1]
+
     def add_event(self, event: Event):
         # Central payload isolation rule: queued events own a deep-copied entity snapshot.
         event.entity = deepcopy(event.entity)
+        inherited_kwargs = self._current_active_event_kwargs()
+        explicit_kwargs = deepcopy(event.kwargs)
+        merged_kwargs = dict(inherited_kwargs)
+        merged_kwargs.update(explicit_kwargs)
+        event.kwargs = merged_kwargs
         target = self._components.get(event.handler_id)
         if target is not None:
             event.version = target.version
@@ -162,8 +181,13 @@ class Engine:
         return list(self._components[component_id].inputs)
 
     def run(self, on_step: Callable[[float, Event | None, list], None] | None = None):
+        for component in self._components.values():
+            component._record_initial_snapshot()
+
         if self.time_limit is not None:
             self.add_event(Event(self.time_limit, "End", "End", {}, {}))
+
+        self._bootstrap_queue_credits()
 
         for event in self._startup_events:
             self.add_event(event)
@@ -234,6 +258,36 @@ class Engine:
         if visualizer is not None:
             path = visualizer.close()
             self.log.info(f"Visualization saved to {path}", extra={"sim_time": self._current_time})
+
+    def _bootstrap_queue_credits(self) -> None:
+        """Auto-bootstrap QueueCredit events for HasQueue-enabled servers."""
+        for component in self._components.values():
+            get_credits = getattr(component, "get_initial_queue_credits", None)
+            queue_component_id = getattr(component, "queue_component_id", None)
+            if not callable(get_credits) or not isinstance(queue_component_id, str):
+                continue
+            if queue_component_id not in self._components:
+                raise ValueError(
+                    f"Component {component.component_id} configured queue_component_id '{queue_component_id}' "
+                    "that is not registered in engine"
+                )
+            ctx = SimulationContext(
+                engine=self,
+                event=Event(0.0, component.component_id, "Bootstrap", {}, {}),
+                component=component,
+            )
+            credits = int(get_credits(ctx))
+            if credits <= 0:
+                continue
+            self.add_event(
+                Event(
+                    0.0,
+                    queue_component_id,
+                    "QueueCredit",
+                    {"server_id": component.component_id, "credits": credits},
+                    {},
+                )
+            )
 
     def get_current_time(self):
         return self._current_time

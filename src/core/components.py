@@ -12,6 +12,7 @@ from ..modules.utils import Distribution
 # Per-component ``state`` dict type; handlers receive the full ``Component`` (see ``EventHandler`` below).
 ComponentState = dict[str, Any]
 EventHandler = Callable[[SimulationContext], None]
+StateUpdater = Callable[[SimulationContext], None]
 
 
 class Component(ABC):
@@ -22,6 +23,8 @@ class Component(ABC):
     Topology is engine-owned: only ``Engine.connect`` / ``Engine.disconnect`` mutate links.
     Components expose read-only ``inputs`` / ``outputs`` views backed by private lists.
     Every component exposes mutable ``state`` and optional ``state_history`` snapshots.
+    ``state`` is intentionally user-defined model state; framework internals should
+    avoid writing keys into it.
     When ``track_state`` is enabled, ``handle_event`` records a shallow copy of
     ``state`` after each successful handler call.
 
@@ -42,6 +45,7 @@ class Component(ABC):
         self.state_history: list[tuple[float, ComponentState]] = []
         self.log = get_logger(f"{type}_{component_id}")
         self.handleable_events = {}
+        self._state_updater: StateUpdater | None = None
         #: Epoch for this block only; ``Engine.add_event`` copies it onto each event targeting this
         #: component. Bump with ``advance_version()`` to invalidate queued events for this handler.
         self._version: int = 0
@@ -58,8 +62,15 @@ class Component(ABC):
     def _record_snapshot(self, engine: Engine) -> None:
         if not self.track_state:
             return
+        # Snapshot only user-defined component.state content.
         t = engine.get_current_time()
         self.state_history.append((t, dict(self.state)))
+
+    def _record_initial_snapshot(self) -> None:
+        """Record pre-simulation state at t=-1 for tracked components."""
+        if not self.track_state:
+            return
+        self.state_history.append((-1.0, dict(self.state)))
 
     def _engine_add_output(self, other: "Component") -> None:
         # Topology is engine-owned, use engine.connect to add a link.
@@ -91,11 +102,21 @@ class Component(ABC):
         self.handleable_events[event_type] = handler
         self.log.info(f"Component {self.component_id} set handleable event {event_type}")
 
+    def set_state_updater(self, updater: StateUpdater | None) -> None:
+        """Register optional simulation-level state updater, run before each snapshot."""
+        self._state_updater = updater
+
     def handle_event(self, engine: Engine, event: Event) -> None:
+        ctx = SimulationContext(engine=engine, event=event, component=self)
         try:
-            self.handleable_events[event.type](SimulationContext(engine=engine, event=event, component=self))
+            engine._push_active_event_kwargs(event.kwargs)
+            self.handleable_events[event.type](ctx)
         except KeyError:
             raise ValueError(f"Component {self.component_id} has no handler for event type: {event.type}")
+        finally:
+            engine._pop_active_event_kwargs()
+        if self._state_updater is not None:
+            self._state_updater(ctx)
         self._record_snapshot(engine)
         self.log.info(f"Component {self.component_id} handled event {event.type}")
 
@@ -104,7 +125,7 @@ class SingleIOComponent(Component):
     """
     Base class for linear-flow components with one logical upstream and downstream.
 
-    Provides single-output wiring helpers and a shared ``default_handle_departure``
+    Provides single-output wiring helpers and a shared ``singleio_handle_departure``
     that forwards ``event.entity`` to the connected output as an ``Arrival``.
     """
 
@@ -128,7 +149,7 @@ class SingleIOComponent(Component):
             raise ValueError(f"Component {self.component_id} expects a single input but has {len(inputs)}")
         return inputs[0]
 
-    def default_handle_departure(self, ctx: SimulationContext) -> None:
+    def singleio_handle_departure(self, ctx: SimulationContext) -> None:
         engine = ctx.engine
         event = ctx.event
         current_time = engine.get_current_time()
@@ -166,14 +187,14 @@ class SourceComponent(SingleIOComponent):
         self.interval = interval
         self.entity_generator = entity_generator
 
-        self.set_handleable_event("Generate", self.default_handle_generate)
-        self.set_handleable_event("Departure", self.default_handle_departure)
+        self.set_handleable_event("Generate", self.source_handle_generate)
+        self.set_handleable_event("Departure", self.singleio_handle_departure)
 
     @property
     def input(self) -> "Component":
         raise ValueError(f"Source component {self.component_id} cannot have an input")
 
-    def default_handle_generate(self, ctx: SimulationContext) -> None:
+    def source_handle_generate(self, ctx: SimulationContext) -> None:
         engine = ctx.engine
         current_time = engine.get_current_time()
         self.log.info("Default Generate event received", extra={"sim_time": current_time})
@@ -236,15 +257,17 @@ class DelayComponent(SingleIOComponent):
         self.delay_interval = delay_interval
         self.capacity = capacity
         self.content = []
+        # Keep runtime internals as attributes (e.g., ``content`` / ``count``), not in
+        # ``state``. ``state`` is reserved for user-defined model variables.
 
-        self.set_handleable_event("Arrival", self.handle_arrival)
-        self.set_handleable_event("Departure", self.handle_departure_delay)
+        self.set_handleable_event("Arrival", self.delay_handle_arrival)
+        self.set_handleable_event("Departure", self.delay_handle_departure)
 
     @property
     def count(self) -> int:
         return len(self.content)
 
-    def handle_arrival(self, ctx: SimulationContext) -> None:
+    def delay_handle_arrival(self, ctx: SimulationContext) -> None:
         engine = ctx.engine
         event = ctx.event
         current_time = engine.get_current_time()
@@ -261,7 +284,7 @@ class DelayComponent(SingleIOComponent):
         next_departure_event = Event(next_time, self.component_id, "Departure", delayed_entity, {})
         engine.add_event(next_departure_event)
 
-    def handle_departure_delay(self, ctx: SimulationContext) -> None:
+    def delay_handle_departure(self, ctx: SimulationContext) -> None:
         engine = ctx.engine
         event = ctx.event
         current_time = engine.get_current_time()
@@ -269,7 +292,7 @@ class DelayComponent(SingleIOComponent):
             self.content.remove((current_time, event.entity))
         except ValueError:
             raise ValueError(f"Element {event.entity} unable to leave delay component {self.component_id} at time {current_time}")
-        self.default_handle_departure(ctx)
+        self.singleio_handle_departure(ctx)
 
 
 class AssertComponent(SingleIOComponent):
@@ -308,7 +331,7 @@ class AssertComponent(SingleIOComponent):
         self.fail_handler = fail_handler if fail_handler is not None else self.assert_fail_drop
         self.dropped_elements = []
         self.set_handleable_event("Arrival", self.assert_handle_arrival)
-        self.set_handleable_event("Departure", self.default_handle_departure)
+        self.set_handleable_event("Departure", self.singleio_handle_departure)
 
     def assert_handle_arrival(self, ctx: SimulationContext) -> None:
         engine = ctx.engine
@@ -343,7 +366,7 @@ class TransformerComponent(SingleIOComponent):
         self.transform_function = transform_function
 
         self.set_handleable_event("Arrival", self.transformer_handle_arrival)
-        self.set_handleable_event("Departure", self.default_handle_departure)
+        self.set_handleable_event("Departure", self.singleio_handle_departure)
 
     def transformer_handle_arrival(self, ctx: SimulationContext) -> None:
         engine = ctx.engine
@@ -363,7 +386,7 @@ class ConvergerComponent(Component):
 
     def __init__(self, component_id: str, track_state: bool = False):
         super().__init__(component_id, "Converger", track_state=track_state)
-        self.set_handleable_event("Arrival", self.handle_arrival)
+        self.set_handleable_event("Arrival", self.converger_handle_arrival)
 
     @property
     def output(self) -> "Component":
@@ -374,7 +397,7 @@ class ConvergerComponent(Component):
             raise ValueError(f"Converger component {self.component_id} expects a single output but has {len(outputs)}")
         return outputs[0]
 
-    def handle_arrival(self, ctx: SimulationContext) -> None:
+    def converger_handle_arrival(self, ctx: SimulationContext) -> None:
         engine = ctx.engine
         event = ctx.event
         current_time = engine.get_current_time()
@@ -399,7 +422,7 @@ class SplitterComponent(Component):
     ):
         super().__init__(component_id, "Splitter", track_state=track_state)
         self.splitter_function = splitter_function
-        self.set_handleable_event("Arrival", self.handle_arrival)
+        self.set_handleable_event("Arrival", self.splitter_handle_arrival)
 
     @property
     def input(self) -> "Component":
@@ -409,7 +432,7 @@ class SplitterComponent(Component):
             raise ValueError(f"Splitter component {self.component_id} expects a single input but has {len(self.inputs)}")
         return self.inputs[0]
 
-    def handle_arrival(self, ctx: SimulationContext) -> None:
+    def splitter_handle_arrival(self, ctx: SimulationContext) -> None:
         engine = ctx.engine
         current_time = engine.get_current_time()
         outputs = list(self.outputs)

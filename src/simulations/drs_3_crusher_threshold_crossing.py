@@ -89,7 +89,7 @@ MODE_SLOW = OperationMode("slow", triggers=[stockpile_low_trigger], data={"crush
 MODE_FAST = OperationMode("fast", triggers=[stockpile_high_trigger], data={"crush_rate_tph": FAST_CAPACITY_TPH}, priority=20)
 
 TransformerComponentWithMode = with_operational_mode(TransformerComponent)
-forward_departure_as_rate_update = get_departure_event_forwarder(
+source_handle_departure = get_departure_event_forwarder(
     target_event_type="RateUpdate",
     payload_factory=lambda ctx: {"rate_tph": float(ctx.event.entity.get("rate_tph", 0.0))},
 )
@@ -120,7 +120,7 @@ def _advance_inventory_to_now(ctx: SimulationContext) -> None:
     st["last_update_time"] = now
 
 
-def crusher_rate_update_handler(ctx: SimulationContext) -> None:
+def crusher_handle_rateupdate(ctx: SimulationContext) -> None:
     """
     Handle incoming/local RateUpdate:
     - advance inventory to now
@@ -192,7 +192,7 @@ def drs_crusher_simulation(visualize: bool = False) -> Engine:
     # Startup-only source: emits one rate update at t=0 (no interval self-scheduling).
     source = SourceComponent("source", startup_rate_entity, interval=None, track_state=True)
     source.state.update(INITIAL_SOURCE_STATE)
-    source.set_handleable_event("Departure", forward_departure_as_rate_update)
+    source.set_handleable_event("Departure", source_handle_departure)
 
     # --- Crusher ---
     # Transformer used as a generic single-output block with mode manager mixin.
@@ -200,7 +200,7 @@ def drs_crusher_simulation(visualize: bool = False) -> Engine:
     crusher.state.update(INITIAL_CRUSHER_STATE)
     crusher.add_mode(MODE_SLOW)
     crusher.add_mode(MODE_FAST)
-    crusher.set_handleable_event("RateUpdate", crusher_rate_update_handler)
+    crusher.set_handleable_event("RateUpdate", crusher_handle_rateupdate)
 
     # --- Sink ---
     sink = SinkComponent("sink", track_state=False)
