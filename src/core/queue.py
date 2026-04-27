@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from typing import Callable, TypeVar
+from typing import Any, Callable, TypeVar
 
 from .components import Component, Entity, Event, SingleIOComponent
 from .context import SimulationContext
@@ -142,6 +142,36 @@ class QueueComponent(SingleIOComponent):
         self.set_handleable_event(QUEUE_CREDIT_EVENT_TYPE, self.queue_handle_queuecredit)
         self.set_handleable_event("Departure", self.queue_handle_departure)
 
+    def queue_prepare_departure(
+        self,
+        ctx: SimulationContext,
+        *,
+        head_entity: Entity,
+        required_credits: int,
+        now: float,
+    ) -> tuple[Entity, dict[str, Any]] | None:
+        """
+        Build the self-Departure payload/kwargs for one reserved dispatch.
+
+        Subclasses can override this to attach extra reservation metadata while
+        preserving core queue scheduling semantics.
+        """
+        _ = (ctx, head_entity, now)
+        event_kwargs: dict[str, Any] = {_queue_credit_cost_key(self.component_id): required_credits}
+        return {}, event_kwargs
+
+    def queue_pop_departure_entity(self, _ctx: SimulationContext) -> Entity:
+        """
+        Pop and return the head entity when handling a reserved Departure.
+
+        Subclasses can override this to customize dequeue/finalization behavior.
+        """
+        if not self.buffer:
+            raise ValueError(f"Queue component {self.component_id} has no buffered entity for Departure")
+        entity = self.buffer.pop(0)
+        self._pending_departures = max(0, self._pending_departures - 1)
+        return entity
+
     def _attempt_dispatch(self, ctx: SimulationContext) -> None:
         now = ctx.engine.get_current_time()
         while self._pending_departures < len(self.buffer):
@@ -158,10 +188,18 @@ class QueueComponent(SingleIOComponent):
                 )
             if self.ready_credits < required:
                 break
-            event_kwargs = {_queue_credit_cost_key(self.component_id): required}
+            prepared_departure = self.queue_prepare_departure(
+                ctx,
+                head_entity=head_entity,
+                required_credits=required,
+                now=now,
+            )
+            if prepared_departure is None:
+                break
+            departure_entity, event_kwargs = prepared_departure
             self.ready_credits -= required
             self._pending_departures += 1
-            ctx.engine.add_event(Event(now, self.component_id, "Departure", {}, event_kwargs))
+            ctx.engine.add_event(Event(now, self.component_id, "Departure", departure_entity, event_kwargs))
 
     def queue_handle_arrival(self, ctx: SimulationContext) -> None:
         if self.max_length is not None and len(self.buffer) >= self.max_length:
@@ -177,10 +215,7 @@ class QueueComponent(SingleIOComponent):
         self._attempt_dispatch(ctx)
 
     def queue_handle_departure(self, ctx: SimulationContext) -> None:
-        if not self.buffer:
-            raise ValueError(f"Queue component {self.component_id} has no buffered entity for Departure")
-        entity = self.buffer.pop(0)
-        self._pending_departures = max(0, self._pending_departures - 1)
+        entity = self.queue_pop_departure_entity(ctx)
         now = ctx.engine.get_current_time()
         ctx.engine.add_event(Event(now, self.output.component_id, "Arrival", entity, ctx.event.kwargs))
         self._attempt_dispatch(ctx)

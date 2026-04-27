@@ -23,6 +23,9 @@ Event types used by the framework/simulations:
 - ``QueueCredit``:
   Queue-server handshake signal that grants one dispatch credit to an upstream queue.
   A queue receiving ``QueueCredit`` may release one buffered entity downstream immediately.
+- ``ResourceReleased``:
+  Resource-handshake signal used to notify request components that a resource was returned
+  to a pool and dispatch can be retried.
 - Custom event types:
   Allowed and encouraged for model-specific behavior (for example, maintenance, failures,
   control commands, or domain-specific transitions).
@@ -60,13 +63,19 @@ def priority_for_event_type(event_type: str) -> int:
     Unknown/custom event types default to ``0``.
 
     Current built-in mapping:
+    - ``QueueCredit`` -> 0
+    - ``ResourceReleased`` -> 0
     - ``RateUpdate`` -> 1 
     - ``ModeChange`` -> 1
     - ``Generate`` -> 2
     - ``Arrival`` -> 3
     - ``Departure`` -> 4
     """
-    if event_type == "RateUpdate":
+    if event_type == "QueueCredit":
+        return 0
+    elif event_type == "ResourceReleased":
+        return 0
+    elif event_type == "RateUpdate":
         return 1
     elif event_type == "ModeChange":
         return 1
