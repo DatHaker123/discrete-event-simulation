@@ -33,7 +33,7 @@ See *Discrete simulation styles* below for a concise comparison.
 
 ### `src.core` public exports
 
-Import from `src.core` (see `src/core/__init__.py`): **`Engine`**, **`EventQueue`**, **`Event`**, **`Entity`**, **`priority_for_event_type`**, **`Component`**, **`SingleIOComponent`**, **`SourceComponent`**, **`SinkComponent`**, **`DelayComponent`**, **`TransformerComponent`**, **`AssertComponent`**.
+Import from `src.core` (see `src/core/__init__.py`): **`Engine`**, **`EventQueue`**, **`Event`**, **`Entity`**, **`priority_for_event_type`**, **`Component`**, **`SingleIOComponent`**, **`SourceComponent`**, **`SinkComponent`**, **`DelayComponent`**, **`TransformerComponent`**, **`AssertComponent`**, **`ConvergerComponent`**, **`SplitterComponent`**, **`QueueComponent`**, **`HasQueue`**, **`with_queue`**, **`Resource`**, **`ResourcePool`**, **`RequestResourceComponent`**, **`FreeResourceComponent`**, **`PreAcquireSourceComponent`**, **`PreAcquireSinkComponent`**, **`PostReleaseSourceComponent`**, **`PostReleaseSinkComponent`**, **`SimulationContext`**.
 
 ---
 
@@ -92,11 +92,11 @@ discrete-event-simulation/
   - **`handler_id`**: `component_id` of the component that handles it.
   - **`type`**: String (`"Generate"`, `"Arrival"`, `"Departure"`, `"RateUpdate"`, `"ModeChange"`, `"End"`, …) — selects the handler and, with `priority_for_event_type()`, orders same-time events.
   - **`entity`**: **`Entity`**. Use **`{}`** when no fields are needed (e.g. startup **`Generate`** before the source fills it; internal **`End`** event). The **`Generate`** event’s **`entity`** is ignored by **`SourceComponent.source_handle_generate`** when an **`entity_generator`** is supplied — the generated dict becomes the **`Departure`** payload.
-  - **`kwargs`**: Reserved for future use (plain `dict` in the dataclass).
+  - **`kwargs`**: Internal metadata channel (`dict`). Most model logic should still pass `{}` explicitly and use `entity` for business payload. Framework-level protocols (queue/resource handshakes) may stamp internal keys in `kwargs`.
   - **`version`**: Snapshot of the **target** component’s **`version`** when the event enters the queue ( **`add_event`** overwrites the dataclass default). Stale when **`event.version < component.version`** for **`handler_id`**. A **DRS-layer** feature; DES-only models often never bump the component version (see the introduction above).
 
 - **`priority_for_event_type(event_type) -> int`**  
-  Lower value = higher priority when times are equal (current built-ins: `RateUpdate`/`ModeChange` first, then `Generate`, then `Arrival`, then `Departure`; other types get a default priority).
+  Lower value = higher priority when times are equal. Current built-ins include control/handshake events (`QueueCredit`, `ResourceReleased`, `PreAcquireStart`, `PreAcquireComplete`, `PostReleaseStart`, `PostReleaseComplete`) at highest priority tier, then `RateUpdate`/`ModeChange`, then `Generate`, then `Arrival`, then `Departure`; other types get a default priority.
 
 ### Engine (`src/core/engine.py`)
 
@@ -189,6 +189,27 @@ Default handlers are **public methods** (e.g. **`SourceComponent.source_handle_g
   - departure wrapper emits `QueueCredit` with released credits
   - supports implicit initial-credit policy via `get_initial_queue_credits(ctx)` / `set_initial_queue_credits_policy(...)`
 - With this model, simulations do not need to manually enqueue startup `QueueCredit` events in the common case.
+
+### Resource workflow (`src/core/resource.py`)
+
+- **`Resource`**: First-class resource object with linkage fields (`id`, `pool_id`, `resource_type`) and lifecycle fields (`allocated_to`, `allocated_at`, `released_at`), plus user-defined `data`.
+- **`ResourcePool`**: Owns canonical `Resource` objects (`resources: dict[str, Resource]`). `acquire(...)` returns `resource_id`; `release(resource_id, ...)` frees it.
+- **Event-carried references**:
+  - `kwargs["resources"][pool_id] -> list[resource_id]`
+  - `kwargs["resource_payloads"][pool_id][resource_id] -> dict` (side-flow-enriched payload snapshot)
+- **`RequestResourceComponent`**:
+  - Queue-derived component that reserves/acquires resources and stamps references into event kwargs.
+  - Supports blocking pre-acquire side-flow (`PreAcquireStart` -> `PreAcquireComplete`) via `link_pre_acquire_source(...)`.
+  - Can link to a `FreeResourceComponent` via `set_free_component(...)` so ownership is tracked implicitly.
+- **`FreeResourceComponent`**:
+  - Releases resources from incoming main-flow events.
+  - Tracks ownership internally (`resource_id -> request component`) from request-side registration.
+  - Ignores untracked resource IDs (avoids cross-pair conflicts).
+  - Supports blocking post-release side-flow (`PostReleaseStart` -> `PostReleaseComplete`) via `set_post_release_source_component(...)`.
+- **Pre/Post side-flow components**:
+  - `PreAcquireSourceComponent` and `PostReleaseSourceComponent` are `SourceComponent`-based entry points.
+  - `PreAcquireSinkComponent` and `PostReleaseSinkComponent` are `SinkComponent`-based terminals that validate resource identity and emit completion events back to request/free.
+  - Sink linking is reference-based (`set_request_component(...)`, `set_free_component(...)`).
 
 ---
 
